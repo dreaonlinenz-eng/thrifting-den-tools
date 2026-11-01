@@ -640,7 +640,20 @@ function mergeEntry(a,b){
     return (ia<0?99:ia)-(ib<0?99:ib) || a.localeCompare(b);
   });
 })();
+// Shortalls: titles containing "shortalls" now have their own pool. Where that pool
+// is missing or thin (conf 'low'), borrow the Overalls pool so there's still a price.
 function lookup(brand,style,size,cond,substyle,tog,pkey){
+  const core=lookupCore(brand,style,size,cond,substyle,tog,pkey);
+  if(!core || canonStyle(style)!=='Shortalls') return core;
+  if(core.price!=null && core.conf!=='low') return core;     // enough Shortalls data of its own
+  const alt=lookupCore(brand,'Overalls',size,cond,'',tog,pkey);
+  if(!alt || alt.price==null) return core;
+  if(core.price!=null && alt.conf==='low') return core;      // Overalls no better
+  const own=core.price!=null ? core.n : 0;
+  return {...alt, conf:(alt.conf==='good'?'avg':alt.conf),
+          basis:'Overalls data (only '+own+' shortalls) · '+alt.basis, shortFallback:true};
+}
+function lookupCore(brand,style,size,cond,substyle,tog,pkey){
   if(!brand||!style||!cond) return null;
   brand=canonBrand(brand);
   style=canonStyle(style);
@@ -891,6 +904,14 @@ let lastSizeForTags='';
 // price; Try This = optional upside you can choose to test. Rebuild from a
 // rolling 12-month order export (sell-through changes over time).
 function tryThisFor(brand,style,size,substyle,tog,pkey){
+  const r=tryThisCore(brand,style,size,substyle,tog,pkey);
+  if(r || !brand || canonStyle(style)!=='Shortalls') return r;
+  // Shortalls with no evidence of its own: use Overalls evidence if its pool is also the price source
+  const own=(PRICING_DATA.bs_ref||{})[canonBrand(brand)+'|Shortalls'];
+  if(own && own.n>=3) return r;
+  return tryThisCore(brand,'Overalls',size,'',tog,pkey);
+}
+function tryThisCore(brand,style,size,substyle,tog,pkey){
   if(!brand||!style) return null;
   brand=canonBrand(brand);
   style=canonStyle(style);
@@ -1473,6 +1494,10 @@ function expandSize(size){
   if(m) return `${m[1]} year${m[1]==='1'?'':'s'}`;
   if(/^nb$/i.test(s)) return 'Newborn';
   if(/^prem$/i.test(s)) return 'Premature';
+  m=s.match(/^prem\s*-\s*(nb|newborn)$/i);
+  if(m) return 'Premature - Newborn';
+  m=s.match(/^([\d.]+)\s*(?:eu)?\s*-\s*([\d.]+)\s*eu$/i);
+  if(m) return `EU ${m[1]} - ${m[2]}`;
   m=s.match(/^([\d.]+)\s*eu$/i);
   if(m) return `EU ${m[1]}`;
   return s; // leave anything else as-is
@@ -1511,8 +1536,32 @@ function deriveSizeTags(size){
   if(/^prem$/i.test(s)){ push('Prem'); return tags; }
   if(/^(nb|newborn)$/i.test(s)){ push('Newborn'); return tags; }
 
+  // Newborn-ish ranges: Prem-NB, Prem-3m, NB-3m -> every stage / month band covered
+  let m=s.match(/^(prem|nb|newborn)\s*-\s*(prem|nb|newborn|\d+\s*m)$/i);
+  if(m){
+    const tok=t=>{ t=t.toLowerCase().replace(/\s+/g,''); return t==='prem'?'Prem':((t==='nb'||t==='newborn')?'Newborn':null); };
+    const t1=tok(m[1]), t2=tok(m[2]);
+    push(t1);
+    if(t2){ push(t2); }
+    else {
+      if(t1==='Prem') push('Newborn');
+      const hi=parseInt(m[2],10);
+      MONTH_BANDS.forEach(([bl,bh,tag])=>{ if(bl<hi) push(tag); });
+    }
+    return tags;
+  }
+
+  // EU shoe RANGE: e.g. 16-17EU -> 16EU + 17EU + the age tag(s) either end straddles
+  m=s.match(/^([\d.]+)\s*(?:eu)?\s*-\s*([\d.]+)\s*eu$/i);
+  if(m){
+    const lo=parseFloat(m[1]), hi=parseFloat(m[2]);
+    push(m[1]+'EU'); push(m[2]+'EU');
+    euToAgeTags(lo).forEach(push); euToAgeTags(hi).forEach(push);
+    return tags;
+  }
+
   // EU shoe: e.g. 18EU, 19.5EU -> EU tag + straddled age tag(s)
-  let m=s.match(/^([\d.]+)\s*eu$/i);
+  m=s.match(/^([\d.]+)\s*eu$/i);
   if(m){ push(m[1]+'EU'); euToAgeTags(parseFloat(m[1])).forEach(push); return tags; }
 
   // Month range: 3-12m -> every month band inside [3,12]
@@ -1919,7 +1968,7 @@ renderList();
 $('brand').focus();
 }
 
-const PRICING_URL = "https://cdn.shopify.com/s/files/1/0574/0023/0062/files/pricing_data_1.json?v=1793504585";
+const PRICING_URL = "https://cdn.shopify.com/s/files/1/0574/0023/0062/files/pricing_data_1.json?v=1793508520";
 const statusEl = document.createElement('div');
 statusEl.id = 'pdLoadStatus';
 statusEl.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:10px 16px;text-align:center;font-family:sans-serif;font-size:14px;z-index:9999;background:#F4A853;color:#22322a;';
