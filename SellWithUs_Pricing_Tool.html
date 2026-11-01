@@ -109,6 +109,17 @@ datalist{position:absolute}
     .chip button:hover{opacity:1}
     .chip-input{flex:1;min-width:120px;border:none;outline:none;background:transparent;font-size:.9rem;padding:4px 2px}
     .chips-empty{color:var(--muted);font-size:.85rem;padding:2px 0}
+    /* ---- matching-set builder ---- */
+    .setrow{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:8px}
+    .setrow .sf{flex:1 1 160px;min-width:140px}
+    .setparts{margin-top:10px;font-size:13px;color:var(--forest2);max-width:420px}
+    .setparts>div{display:flex;justify-content:space-between;gap:18px;padding:3px 0;border-bottom:1px dashed var(--sage)}
+    /* ---- edit a line ---- */
+    .editbanner{display:none;align-items:center;gap:10px;margin:0 0 16px;padding:9px 14px;background:#fff3d6;border:1px solid var(--gold);border-radius:10px;font-size:13px;font-weight:600;color:#6b4a0f}
+    .editbtn{color:var(--forest2);cursor:pointer;font-weight:700;border:none;background:none;font-size:15px;padding:2px 6px;border-radius:6px}
+    .editbtn:hover{background:var(--sagebg)}
+    tbody tr.editing{background:#fff3d6}
+    tbody tr.editing:hover{background:#ffedc2}
 </style>
 </head>
 <body>
@@ -120,6 +131,7 @@ datalist{position:absolute}
   <p class="tagline">Look up a suggested listing price from your own sales &amp; purchase history. The Thrifting Den.</p>
 
   <div class="card lookup-card">
+    <div id="editBanner" class="editbanner"><span>✎</span><span id="editBannerText"></span></div>
     <div class="grid">
       <div style="position:relative">
         <label for="brand">Brand</label>
@@ -147,7 +159,7 @@ datalist{position:absolute}
         <input id="size" list="sizelist" placeholder="e.g. 0-3m" autocomplete="off">
         <datalist id="sizelist"></datalist>
       </div>
-      <div>
+      <div id="condWrap">
         <label for="cond">Condition</label>
         <select id="cond"></select>
       </div>
@@ -158,6 +170,14 @@ datalist{position:absolute}
           <option value="For The Babes">For The Babes</option>
           <option value="The Big Kids Edit">The Big Kids Edit</option>
         </select>
+      </div>
+    </div>
+    <div id="setBuilder" style="display:none;margin-top:14px">
+      <label>Matching set pieces <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted)">(pick each piece &mdash; each is priced on its own, then added together &middot; 2 to 5 pieces)</span></label>
+      <div id="setRows"></div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button type="button" class="ghostbtn" id="addSetRow">＋ Add piece</button>
+        <span class="meta" id="setCount"></span>
       </div>
     </div>
     <div class="grid csv-grid" style="margin-top:14px">
@@ -212,6 +232,7 @@ datalist{position:absolute}
     <div class="result empty" id="result">Fill in brand, style, size &amp; condition to see a suggested price.</div>
     <div id="reqFieldsHint" class="meta" style="margin-top:10px;color:var(--muted);display:none">Fill in <strong>Item name/description</strong> &amp; at least one <strong>Size tag</strong> before adding this item.</div>
     <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+      <button class="ghostbtn" id="canceleditbtn" style="display:none">Cancel edit</button>
       <button class="addbtn addtrybtn" id="addoverridebtn" style="display:none">＋ Add override price</button>
       <button class="addbtn addtrybtn" id="addtrybtn" style="display:none">＋ Add Try This price</button>
       <button class="addbtn" id="addbtn" disabled>＋ Add to list</button>
@@ -241,6 +262,10 @@ async function boot(){
 // ---- helpers ----
 const $=id=>document.getElementById(id);
 const fmt=n=>'$'+n.toFixed(2);
+// Matching-set pieces (up to 5) and the index of the list line being edited (-1 = none)
+let setComps=[];
+let editIndex=-1;
+let editBackup=null;
 const round50=n=>{
   const r=Math.ceil(n*2)/2;
   // Superstition guard: never land on $13.00 or $13.50 -- jump to whichever
@@ -322,7 +347,7 @@ Object.keys(PRICING_DATA.cond).forEach((c,i)=>{const o=document.createElement('o
 const SUBSTYLES = PRICING_DATA.substyles || {};   // {} when data pre-dates rebuild
 function refreshSubstyleOptions(){
   const style=$('style').value;
-  const list=SUBSTYLES[style];
+  const list=isSetStyle(style)?null:SUBSTYLES[style];
   const wrap=$('substyleWrap'), sel=$('substyle');
   sel.innerHTML='<option value="">Any / not sure</option>';
   if(list && list.length){
@@ -333,6 +358,7 @@ function refreshSubstyleOptions(){
     sel.value='';
   }
   refreshTogOptions();
+  syncSetMode();
 }
 
 // Tog/weight is OPTIONAL and only shown for sleepwear-style items where a
@@ -354,6 +380,68 @@ function refreshTogOptions(){
     sel.value='';
   }
 }
+
+// ---- Matching Set builder ----
+// When Style = "Matching Set" the tool no longer prices the set off the old
+// "matching set" history. Instead you pick each piece yourself (style /
+// sub-style / condition, 2 to 5 pieces); each piece is priced on its own and
+// the prices are added together.
+const MAX_SET_PIECES=5;
+function isSetStyle(s){ return /^matching set/i.test(String(s||'')); }
+function newSetPiece(cond){ return {style:'',substyle:'',tog:'',cond:cond||$('cond').value||'EUC'}; }
+function attrEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function syncSetMode(){
+  const on=isSetStyle($('style').value);
+  $('setBuilder').style.display=on?'block':'none';
+  $('condWrap').style.display=on?'none':'';   // each piece has its own condition
+  if(on){
+    if(!setComps.length) setComps=[newSetPiece(),newSetPiece()];
+    renderSetRows();
+  } else {
+    setComps=[];
+  }
+}
+function renderSetRows(){
+  const host=$('setRows');
+  host.innerHTML='';
+  const styles=(PRICING_DATA.styles||[]).filter(s=>!isSetStyle(s));
+  const conds=Object.keys(PRICING_DATA.cond);
+  const opt=(v,cur)=>`<option value="${attrEsc(v)}"${v===cur?' selected':''}>${attrEsc(v)}</option>`;
+  setComps.forEach((c,i)=>{
+    const subs=SUBSTYLES[c.style]||[];
+    const togOn=TOG_STYLES.includes(c.style)&&!!c.substyle;
+    const row=document.createElement('div');
+    row.className='setrow';
+    row.innerHTML=
+      `<div class="sf"><label>Piece ${i+1} &middot; Style</label><select data-k="style"><option value="">Select…</option>${styles.map(s=>opt(s,c.style)).join('')}</select></div>`+
+      (subs.length?`<div class="sf"><label>Sub-style</label><select data-k="substyle"><option value="">Any / not sure</option>${subs.map(s=>opt(s,c.substyle)).join('')}</select></div>`:'')+
+      (togOn?`<div class="sf"><label>Tog / weight</label><select data-k="tog"><option value="">Not stated</option>${(PRICING_DATA.togs||[]).map(t=>opt(t,c.tog)).join('')}</select></div>`:'')+
+      `<div class="sf"><label>Condition</label><select data-k="cond">${conds.map(k=>opt(k,c.cond)).join('')}</select></div>`+
+      `<button type="button" class="del" title="Remove this piece"${setComps.length<=2?' style="visibility:hidden"':''}>×</button>`;
+    row.querySelectorAll('select').forEach(sel=>{
+      sel.addEventListener('change',()=>{
+        const k=sel.dataset.k;
+        c[k]=sel.value;
+        if(k==='style'){ c.substyle=''; c.tog=''; renderSetRows(); }
+        else if(k==='substyle'){ c.tog=''; renderSetRows(); }
+        refresh();
+      });
+    });
+    row.querySelector('.del').addEventListener('click',()=>{
+      if(setComps.length<=2) return;
+      setComps.splice(i,1); renderSetRows(); refresh();
+    });
+    host.appendChild(row);
+  });
+  $('addSetRow').disabled=setComps.length>=MAX_SET_PIECES;
+  $('setCount').textContent=setComps.length+' of '+MAX_SET_PIECES+' pieces';
+}
+$('addSetRow').addEventListener('click',()=>{
+  if(setComps.length>=MAX_SET_PIECES) return;
+  const last=setComps[setComps.length-1];
+  setComps.push(newSetPiece(last?last.cond:undefined));
+  renderSetRows(); refresh();
+});
 
 // ---- pricing lookup ----
 // Shrinkage: pull a thin size-level price toward a more stable average.
@@ -603,6 +691,55 @@ function lookup(brand,style,size,cond,substyle,tog,pkey){
   return {price:null, conf:'none', n:0, basis:'no data'};
 }
 
+// ---- Matching Set pricing ----
+// Each piece is priced on its own (same brand, shared size, but ITS OWN style /
+// sub-style / condition) and the prices are simply ADDED together (no set
+// discount -- override the total if a set should sell for more or less).
+// If any piece has no history the set total is left blank (use Override
+// price), but the pieces that did price are still shown.
+const CONF_ORDER=['good','avg','low','none'];   // best -> worst
+function priceSet(brand,size,pieces,pkey){
+  const parts=pieces.map(p=>({...p, r:lookup(brand,p.style,size,p.cond,p.substyle,p.tog,pkey)}));
+  const priced=parts.filter(p=>p.r && p.r.price!=null);
+  const all=priced.length===parts.length;
+  const sum=priced.reduce((t,p)=>t+p.r.price,0);
+  let worst='good', minN=Infinity;
+  parts.forEach(p=>{
+    const c=(p.r&&p.r.conf)||'none';
+    if(CONF_ORDER.indexOf(c)>CONF_ORDER.indexOf(worst)) worst=c;
+    minN=Math.min(minN,(p.r&&p.r.n)||0);
+  });
+  return {price: all?round50(sum):null, partial:sum, conf: all?worst:'none',
+          n:(minN===Infinity?0:minN), basis:parts.length+'-piece set', parts};
+}
+// Lowest-value condition among the pieces (by the data's own condition multiplier).
+function worstCondOf(pieces){
+  let w=null, wm=Infinity;
+  pieces.forEach(c=>{ const m=PRICING_DATA.cond[c.cond]??1; if(m<wm){ wm=m; w=c.cond; } });
+  return w;
+}
+function condLabel(it){
+  if(!it.components) return it.cond;
+  const u=Array.from(new Set(it.components.map(c=>c.cond)));
+  return u.length>1 ? it.cond+' (lowest)' : it.cond;
+}
+function subTxt(it){
+  return it.components ? it.components.map(c=>c.substyle||c.style).join(' + ') : (it.substyle||'');
+}
+// Set payout: the LOWEST payout % among the pieces (i.e. the worst condition)
+// applies to the whole combined price.
+function costPriceSet(salePrice,brand,pieces,payout){
+  if(salePrice==null) return null;
+  let rate=null;
+  pieces.forEach(c=>{
+    const x=effectiveRate(brand,c.cond,payout);
+    if(x==null) return;
+    if(rate==null||x<rate) rate=x;
+  });
+  if(rate==null) return null;
+  return {cost: salePrice*(rate/100), rate};
+}
+
 const confMeta={
   good:{cls:'conf-good',txt:'✓ Good data'},
   avg:{cls:'conf-avg',txt:'✓ Brand average'},
@@ -741,10 +878,13 @@ function refresh(){
   }
   // Empty / incomplete form: bail out before any price lookup so we never
   // dereference a null result (e.g. right after the form is reset).
-  if(!brand||!style||!cond){
+  const isSet=isSetStyle(style);
+  const setPieces=isSet?setComps.filter(c=>c.style).map(c=>({...c})):[];
+  const needSet=isSet&&setPieces.length<2;
+  if(!brand||!style||!cond||needSet){
     current=null;
     el.className='result empty';
-    el.innerHTML='Fill in brand, style, size &amp; condition to see a suggested price.';
+    el.innerHTML=(needSet&&brand)?'Pick at least <strong>2 pieces</strong> for this matching set to see a suggested price.':'Fill in brand, style, size &amp; condition to see a suggested price.';
     $('addbtn').disabled=true; $('addtrybtn').disabled=true; $('addtrybtn').style.display='none';
     $('addoverridebtn').disabled=true; $('addoverridebtn').style.display='none';
     $('reqFieldsHint').style.display='none';
@@ -756,8 +896,9 @@ function refresh(){
   // which price pool to read, so the suggestion matches the range you picked.
   const rateSel=$('rate'), rateOpt=rateSel&&rateSel.selectedIndex>=0?rateSel.options[rateSel.selectedIndex]:null;
   const pkey=rateOpt&&rateOpt.dataset?rateOpt.dataset.pkey:'';
-  const r=lookup(brand,style,size,cond,substyle,tog,pkey);
-  const cp = costPrice(r.price,brand,cond,payout);
+  const r = isSet ? priceSet(brand,size,setPieces,pkey) : lookup(brand,style,size,cond,substyle,tog,pkey);
+  const costFor=(p)=> isSet ? costPriceSet(p,brand,setPieces,payout) : costPrice(p,brand,cond,payout);
+  const cp = costFor(r.price);
   const descname=$('descname').value.trim(), rrp=$('rrp').value.trim(), condfree=$('condfree').value.trim(), consignor=$('consignor').value.trim();
   const fabric=$('fabric').value.trim(), collection=$('collection').value;
   // Item name/description, Fabric, and at least one Size tag are mandatory
@@ -766,7 +907,10 @@ function refresh(){
   // lookup, only the "commit this item" actions are gated.
   const reqFieldsOk = !!descname && sizeTags.length>0;
   $('reqFieldsHint').style.display = reqFieldsOk ? 'none' : 'block';
-  current={brand,style,substyle,size,cond,payout,descname,rrp,condfree,consignor,fabric,collection,sizeTags:sizeTags.slice(),cost:cp?cp.cost:null,rate:cp?cp.rate:null,...r};
+  current={brand,style,substyle,tog,size,cond:(isSet?worstCondOf(setPieces):cond),payout,descname,rrp,condfree,consignor,fabric,collection,
+           components:(isSet?setPieces.map(c=>({style:c.style,substyle:c.substyle,tog:c.tog,cond:c.cond})):null),
+           sizeTags:sizeTags.slice(),cost:cp?cp.cost:null,rate:cp?cp.rate:null,...r};
+  delete current.parts; delete current.partial;
   // ---- Override price: user types their own price; we work out the cost the
   // same way (brand rate + cash/credit + condition penalty). Works even with no
   // sales history, so you can always price + cost a one-off item.
@@ -774,7 +918,7 @@ function refresh(){
   const ovNum=ovRaw===''?null:Number(ovRaw);
   let ovCostObj=null;
   if(ovNum!=null && !isNaN(ovNum) && ovNum>0){
-    ovCostObj=costPrice(ovNum,brand,cond,payout);
+    ovCostObj=costFor(ovNum);
     current.overridePrice=ovNum;
     current.overrideCost=ovCostObj?ovCostObj.cost:null;
     current.overrideRate=ovCostObj?ovCostObj.rate:null;
@@ -792,6 +936,12 @@ function refresh(){
   $('addoverridebtn').style.display = (current.overridePrice!=null) ? 'inline-block' : 'none';
   $('addoverridebtn').disabled = (current.overridePrice==null) || !reqFieldsOk;
   const cm=confMeta[r.conf];
+  const partsBlock = isSet
+    ? `<div class="setparts">${r.parts.map(p=>`<div><span>${esc(p.style)}${p.substyle?' › '+esc(p.substyle):''} · ${esc(p.cond)}</span><strong>${p.r&&p.r.price!=null?fmt(p.r.price):'no data'}</strong></div>`).join('')}${(()=>{ const u=Array.from(new Set(setPieces.map(c=>c.cond))); return u.length>1 ? '<div class="meta" style="margin-top:6px">Mixed conditions — payout rate uses the lowest (<strong>'+esc(worstCondOf(setPieces))+'</strong>).</div>' : ''; })()}</div>`
+    : '';
+  const basisLine = isSet
+    ? `Straight sum of <strong>${r.parts.length}</strong> pieces · ${r.price===null?'some pieces have no history':'each priced on its own style &amp; condition'}`
+    : `Based on <strong>${r.n}</strong> past item${r.n===1?'':'s'} · ${r.basis}`;
   if(r.price===null){
     el.className='result';
     // If the same combo exists under the Merino/non-Merino counterpart style,
@@ -808,7 +958,7 @@ function refresh(){
       }
     }
     el.innerHTML=`<div><div class="price-label">Suggested listing</div><div class="price-big">—</div></div>
-      <div><span class="confidence ${cm.cls}">${cm.txt}</span><div class="meta" style="margin-top:8px">No history for this combo yet. Price using your judgement.</div>${altHint}</div>`;
+      <div><span class="confidence ${cm.cls}">${cm.txt}</span><div class="meta" style="margin-top:8px">${isSet?'One or more pieces have no history yet — price the set yourself with <strong>Override price</strong>.':'No history for this combo yet. Price using your judgement.'}</div>${altHint}${partsBlock}</div>`;
     if(current){ current.tryPrice=null; current.tryCost=null; current.tryRate=null; }
     $('addbtn').disabled=true;
     $('addtrybtn').disabled=true; $('addtrybtn').style.display='none';
@@ -816,29 +966,41 @@ function refresh(){
   } else {
     el.className='result';
     const payoutLabel = payout==='credit' ? 'Store credit' : 'Cash payout';
-    const tt = tryThisFor(brand,style,size,substyle,tog,pkey);
+    const tt = isSet ? null : tryThisFor(brand,style,size,substyle,tog,pkey);
     // Scale the "Try This" nudge to the CURRENT suggested price so it respects
     // condition. The stored tt.try is an EUC-level figure; tt.try/tt.p is the
     // uplift ratio (~1.05–1.075). Apply that ratio to r.price (which already has
     // the condition multiplier baked in), then round to a clean $0.50/$1.
-    let ttPrice = null, ttCostObj = null;
-    if(tt && tt.try && tt.p){
+    let ttPrice = null, ttCostObj = null, ttWhy = '';
+    if(isSet){
+      // Set: each piece uses its own Try This uplift where it has one; pieces without keep their normal price.
+      let hits=0, tsum=0;
+      r.parts.forEach(p=>{
+        const t2=tryThisFor(brand,p.style,size,p.substyle,p.tog,pkey);
+        let pp=p.r.price;
+        if(t2 && t2.try && t2.p){ const s2=round50(p.r.price*(t2.try/t2.p)); if(s2>p.r.price){ pp=s2; hits++; } }
+        tsum+=pp;
+      });
+      const scaledSet=round50(tsum);
+      if(hits && scaledSet>r.price){ ttPrice=scaledSet; ttWhy='Strong full-price sell-through on <strong>'+hits+'</strong> of '+r.parts.length+' pieces — room to push'; }
+    } else if(tt && tt.try && tt.p){
       const ratio = tt.try / tt.p;
       const scaled = round50(r.price * ratio);
       if(scaled > r.price) ttPrice = scaled;   // only show if it's genuinely higher
+      if(ttPrice) ttWhy='Sells through at <strong>'+tt.fr+'%</strong> full price over <strong>'+tt.tn+'</strong> sales — room to push';
     }
-    if(ttPrice!=null){ ttCostObj = costPrice(ttPrice,brand,cond,payout); }
+    if(ttPrice!=null){ ttCostObj = costFor(ttPrice); }
     // expose Try This on current so it can be added to the list
     if(current){ current.tryPrice = ttPrice; current.tryCost = ttCostObj?ttCostObj.cost:null; current.tryRate = ttCostObj?ttCostObj.rate:null; }
     const ttBlock = ttPrice
-      ? `<div class="trythis"><span class="trythis-arrow">↑</span> <span class="trythis-label">Try This</span> <span class="trythis-price">${fmt(ttPrice)}</span>${ttCostObj?`<span class="trythis-cost">${payoutLabel} ${fmt(ttCostObj.cost)} <span style="opacity:.7">(${ttCostObj.rate}%)</span></span>`:''}<div class="trythis-why">Sells through at <strong>${tt.fr}%</strong> full price over <strong>${tt.tn}</strong> sales — room to push</div></div>`
+      ? `<div class="trythis"><span class="trythis-arrow">↑</span> <span class="trythis-label">Try This</span> <span class="trythis-price">${fmt(ttPrice)}</span>${ttCostObj?`<span class="trythis-cost">${payoutLabel} ${fmt(ttCostObj.cost)} <span style="opacity:.7">(${ttCostObj.rate}%)</span></span>`:''}<div class="trythis-why">${ttWhy}</div></div>`
       : '';
     const costBlock = cp
       ? `<div style="margin-top:4px"><div class="price-label">${payoutLabel} <span style="color:var(--muted)">(${cp.rate}%)</span></div><div class="price-big" style="font-size:1.5rem">${fmt(cp.cost)}</div></div>`
       : `<div style="margin-top:4px"><div class="price-label">${payoutLabel}</div><div class="meta">Set brand rate to see cost</div></div>`;
     el.innerHTML=`<div><div class="price-label">Suggested listing</div><div class="price-big">${fmt(r.price)}</div>${costBlock}</div>
       <div><span class="confidence ${cm.cls}">${cm.txt}</span>
-      <div class="meta" style="margin-top:8px">Based on <strong>${r.n}</strong> past item${r.n===1?'':'s'} · ${r.basis}</div>${ttBlock}</div>`;
+      <div class="meta" style="margin-top:8px">${basisLine}</div>${partsBlock}${ttBlock}</div>`;
   }
   $('addbtn').disabled=!reqFieldsOk;
   $('addtrybtn').disabled = !(current && current.tryPrice && reqFieldsOk);
@@ -910,12 +1072,12 @@ function renderList(){
     const cm=confMeta[it.conf];
     const payTag = it.payout==='credit' ? 'credit' : 'cash';
     const costCell = it.cost!=null ? `${fmt(it.cost)} <span style="color:var(--muted);font-size:.8em">${payTag} ${it.rate}%</span>` : '—';
-    return `<tr>
-      <td>${esc(it.brand)}</td><td>${esc(it.style)}</td><td>${esc(it.substyle||'—')}</td><td>${esc(it.size||'—')}</td><td>${esc(it.cond)}</td>
+    return `<tr${i===editIndex?' class="editing"':''}>
+      <td>${esc(it.brand)}</td><td>${esc(it.style)}</td><td>${esc(subTxt(it)||'—')}</td><td>${esc(it.size||'—')}</td><td>${esc(condLabel(it))}</td>
       <td class="num">${it.price?fmt(it.price):'—'}${it.isTry?' <span class="trytag">TRY</span>':''}</td>
       <td class="num">${costCell}</td>
       <td><span class="pill ${cm.cls}">${cm.txt.replace('✓ ','').replace('⚠ ','')}</span></td>
-      <td style="text-align:center"><button class="del" data-i="${i}" title="Remove">×</button></td>
+      <td style="text-align:center;white-space:nowrap"><button class="editbtn" data-e="${i}" title="Edit this line">✎</button><button class="del" data-i="${i}" title="Remove">×</button></td>
     </tr>`;
   }).join('');
   w.innerHTML=`<table><thead><tr>
@@ -924,7 +1086,14 @@ function renderList(){
     <tr class="totalrow"><td colspan="5">Total (${list.length} item${list.length===1?'':'s'})</td>
     <td class="num">${fmt(total)}</td><td class="num">${fmt(totalCost)}</td><td colspan="2"></td></tr>
     </tbody></table>`;
-  w.querySelectorAll('.del').forEach(b=>b.addEventListener('click',e=>{list.splice(+e.target.dataset.i,1);renderList();}));
+  w.querySelectorAll('.del').forEach(b=>b.addEventListener('click',e=>{
+    const i=+e.currentTarget.dataset.i;
+    list.splice(i,1);
+    if(editIndex===i){ exitEditMode(); renderList(); resetForm(); return; }
+    if(editIndex>i){ editIndex--; setEditUI(true); }
+    renderList();
+  }));
+  w.querySelectorAll('.editbtn').forEach(b=>b.addEventListener('click',e=>startEdit(+e.currentTarget.dataset.e)));
 }
 function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 
@@ -943,27 +1112,92 @@ function resetForm(){
   refresh();
   $('brand').focus();
 }
-$('addbtn').addEventListener('click',()=>{
-  if(!current || current.price==null)return;
-  list.push({...current});
+// ---- add / update a line, and edit an existing line ----
+// Editing loads the whole line (including any manual override price, size tags
+// and set pieces) back into the form above; the add buttons turn into "Update"
+// buttons and the line is replaced in place, keeping its position in the list.
+function setEditUI(on){
+  $('editBanner').style.display = on?'flex':'none';
+  $('canceleditbtn').style.display = on?'inline-block':'none';
+  $('addbtn').textContent = on?'✓ Update line':'＋ Add to list';
+  $('addtrybtn').textContent = on?'✓ Update with Try This price':'＋ Add Try This price';
+  $('addoverridebtn').textContent = on?'✓ Update with override price':'＋ Add override price';
+  if(on && list[editIndex]){
+    const it=list[editIndex];
+    $('editBannerText').textContent='Editing line '+(editIndex+1)+' — '+[it.brand,it.descname].filter(Boolean).join(' ');
+  }
+}
+function exitEditMode(){
+  editIndex=-1;
+  if(editBackup){ $('payout').value=editBackup.payout; $('consignor').value=editBackup.consignor; editBackup=null; }
+  setEditUI(false);
+}
+function commitItem(variant){
+  if(!current) return;
+  let item;
+  if(variant==='try'){
+    if(!current.tryPrice) return;
+    // add the Try This variant: override price/cost/rate with the Try This figures
+    item={...current, price:current.tryPrice, cost:current.tryCost, rate:current.tryRate, isTry:true};
+  } else if(variant==='override'){
+    if(current.overridePrice==null) return;
+    // add with the user's override price + its computed cost
+    item={...current, price:current.overridePrice, cost:current.overrideCost, rate:current.overrideRate, conf:'override', basis:'manual override', isOverride:true};
+  } else {
+    if(current.price==null) return;
+    item={...current};
+  }
+  item.rateIdx=$('rate').selectedIndex;   // remember which brand-rate option was picked (for editing later)
+  if(editIndex>=0) list[editIndex]=item; else list.push(item);
+  exitEditMode();
   renderList();
   resetForm();
-});
-$('addtrybtn').addEventListener('click',()=>{
-  if(!current || !current.tryPrice)return;
-  // add the Try This variant: override price/cost/rate with the Try This figures
-  list.push({...current, price:current.tryPrice, cost:current.tryCost, rate:current.tryRate, isTry:true});
+}
+function startEdit(i){
+  const it=list[i];
+  if(!it) return;
+  if(editIndex<0) editBackup={payout:$('payout').value, consignor:$('consignor').value};
+  editIndex=i;
+  $('brand').value=it.brand;
+  refreshRateOptions();
+  const rs=$('rate');
+  if(it.rateIdx!=null && it.rateIdx>=0 && it.rateIdx<rs.options.length) rs.selectedIndex=it.rateIdx;
+  setComps=it.components?it.components.map(c=>({...c})):[];
+  $('style').value=it.style;
+  refreshSubstyleOptions();                 // also switches the set builder on/off
+  if(!it.components){
+    $('substyle').value=it.substyle||'';
+    refreshTogOptions();
+    $('tog').value=it.tog||'';
+  }
+  $('cond').value=it.cond;
+  $('size').value=it.size||'';
+  lastSizeForTags=it.size||'';
+  sizeTags=(it.sizeTags||[]).slice();
+  renderSizeTags();
+  $('descname').value=it.descname||'';
+  $('rrp').value=it.rrp||'';
+  $('condfree').value=it.condfree||'';
+  $('fabric').value=it.fabric||'';
+  $('collection').value=it.collection||'';
+  $('override').value=(it.isOverride && it.price!=null)?it.price:'';
+  $('payout').value=it.payout||'cash'; $('consignor').value=it.consignor||'';
+  refresh();
+  setEditUI(true);
   renderList();
-  resetForm();
+  document.querySelector('.lookup-card').scrollIntoView({behavior:'smooth',block:'start'});
+}
+$('addbtn').addEventListener('click',()=>commitItem('suggested'));
+$('addtrybtn').addEventListener('click',()=>commitItem('try'));
+$('addoverridebtn').addEventListener('click',()=>commitItem('override'));
+$('canceleditbtn').addEventListener('click',()=>{ exitEditMode(); renderList(); resetForm(); });
+$('clearbtn').addEventListener('click',()=>{
+  if(list.length&&confirm('Clear all items from the list?')){
+    const wasEditing=editIndex>=0;
+    list=[]; exitEditMode(); renderList();
+    if(wasEditing) resetForm();
+  }
 });
-$('addoverridebtn').addEventListener('click',()=>{
-  if(!current || current.overridePrice==null)return;
-  // add with the user's override price + its computed cost
-  list.push({...current, price:current.overridePrice, cost:current.overrideCost, rate:current.overrideRate, conf:'override', basis:'manual override', isOverride:true});
-  renderList();
-  resetForm();
-});
-$('clearbtn').addEventListener('click',()=>{ if(list.length&&confirm('Clear all items from the list?')){list=[];renderList();} });
 
 // ---- Shopify CSV generation ----
 // Title rule (per build spec): strip anything in () from the brand; if condition is
@@ -1313,7 +1547,7 @@ $('copybtn').addEventListener('click',()=>{
   let txt='Brand\tStyle\tSub-style\tSize\tCondition\tSuggested\tPayout type\tRate %\tPayout $\n';
   list.forEach(it=>{
     const pt = it.payout==='credit'?'Store credit':'Cash';
-    txt+=`${it.brand}\t${it.style}\t${it.substyle||''}\t${it.size||''}\t${it.cond}\t${it.price?it.price.toFixed(2):''}\t${pt}\t${it.rate??''}\t${it.cost!=null?it.cost.toFixed(2):''}\n`;
+    txt+=`${it.brand}\t${it.style}\t${subTxt(it)}\t${it.size||''}\t${condLabel(it)}\t${it.price?it.price.toFixed(2):''}\t${pt}\t${it.rate??''}\t${it.cost!=null?it.cost.toFixed(2):''}\n`;
   });
   navigator.clipboard.writeText(txt).then(()=>{
     const b=$('copybtn');const o=b.textContent;b.textContent='Copied ✓';setTimeout(()=>b.textContent=o,1400);
@@ -1324,7 +1558,7 @@ renderList();
 $('brand').focus();
 }
 
-const PRICING_URL = "https://cdn.shopify.com/s/files/1/0574/0023/0062/files/pricing_data_1.json?v=1790896112";
+const PRICING_URL = "https://cdn.shopify.com/s/files/1/0574/0023/0062/files/pricing_data_1.json?v=1793504585";
 const statusEl = document.createElement('div');
 statusEl.id = 'pdLoadStatus';
 statusEl.style.cssText = 'position:fixed;top:0;left:0;right:0;padding:10px 16px;text-align:center;font-family:sans-serif;font-size:14px;z-index:9999;background:#F4A853;color:#22322a;';
