@@ -101,6 +101,17 @@ datalist{position:absolute}
     .addtrybtn{background:var(--gold);color:#2d495a;margin-right:10px}
     .addtrybtn:hover{background:#d59a3f}
     .trytag{display:inline-block;background:var(--gold);color:#2d495a;font-size:.62rem;font-weight:800;padding:1px 5px;border-radius:4px;vertical-align:middle;margin-left:4px;letter-spacing:.03em}
+    /* number inputs: no spinner arrows (prevents accidental price nudges) */
+    input[type=number]{-moz-appearance:textfield;appearance:textfield}
+    input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+    /* 30% off RRP block (BNWT/BNWOT standard) */
+    .rrp30{margin-top:10px;padding:8px 10px;background:#cfe3d4;border-radius:8px;line-height:1.35;border:1px solid #9cc3a6}
+    .rrp30-label{font-weight:700;color:#1f4d33;text-transform:uppercase;font-size:.72rem;letter-spacing:.04em}
+    .rrp30-price{font-weight:700;color:#1f4d33;font-size:1.05rem;margin-left:2px}
+    .rrp30-why{color:#1f4d33;font-size:.78rem;margin-top:2px;opacity:.9}
+    .rrp30-cost{display:block;color:#1f4d33;font-size:.85rem;font-weight:600;margin-top:4px}
+    .addrrpbtn{background:#7fb38e;color:#14361f;margin-right:10px}
+    .addrrpbtn:hover{background:#6aa37a}
     .chipbox{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:44px;padding:7px 9px;border:1px solid var(--line);border-radius:10px;background:#fff}
     .chipbox:focus-within{border-color:var(--forest2);box-shadow:0 0 0 3px rgba(46,83,64,.12)}
     .chips{display:contents}
@@ -234,6 +245,7 @@ datalist{position:absolute}
     <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
       <button class="ghostbtn" id="canceleditbtn" style="display:none">Cancel edit</button>
       <button class="addbtn addtrybtn" id="addoverridebtn" style="display:none">＋ Add override price</button>
+      <button class="addbtn addrrpbtn" id="addrrpbtn" style="display:none">＋ Add 30% off RRP price</button>
       <button class="addbtn addtrybtn" id="addtrybtn" style="display:none">＋ Add Try This price</button>
       <button class="addbtn" id="addbtn" disabled>＋ Add to list</button>
     </div>
@@ -758,7 +770,8 @@ const confMeta={
   avg:{cls:'conf-avg',txt:'✓ Brand average'},
   low:{cls:'conf-low',txt:'⚠ Low data'},
   none:{cls:'conf-none',txt:'⚠ Set price yourself'},
-  override:{cls:'conf-avg',txt:'✎ Manual price'}
+  override:{cls:'conf-avg',txt:'✎ Manual price'},
+  rrp:{cls:'conf-good',txt:'🏷 30% off RRP'}
 };
 
 // ---- payout / cost price ----
@@ -892,7 +905,7 @@ function refresh(){
     el.className='result empty';
     el.innerHTML='Enter a <strong>Consignor name</strong> (below) to start pricing.';
     $('addbtn').disabled=true; $('addtrybtn').disabled=true; $('addtrybtn').style.display='none';
-    $('addoverridebtn').disabled=true; $('addoverridebtn').style.display='none';
+    $('addoverridebtn').disabled=true; $('addoverridebtn').style.display='none'; $('addrrpbtn').disabled=true; $('addrrpbtn').style.display='none';
     $('reqFieldsHint').style.display='none';
     $('overrideCost').innerHTML='';
     return;
@@ -907,7 +920,7 @@ function refresh(){
     el.className='result empty';
     el.innerHTML=(needSet&&brand)?'Pick at least <strong>2 pieces</strong> for this matching set to see a suggested price.':'Fill in brand, style, size &amp; condition to see a suggested price.';
     $('addbtn').disabled=true; $('addtrybtn').disabled=true; $('addtrybtn').style.display='none';
-    $('addoverridebtn').disabled=true; $('addoverridebtn').style.display='none';
+    $('addoverridebtn').disabled=true; $('addoverridebtn').style.display='none'; $('addrrpbtn').disabled=true; $('addrrpbtn').style.display='none';
     $('reqFieldsHint').style.display='none';
     $('overrideCost').innerHTML='';
     return;
@@ -932,6 +945,14 @@ function refresh(){
            components:(isSet?setPieces.map(c=>({style:c.style,substyle:c.substyle,tog:c.tog,cond:c.cond})):null),
            sizeTags:sizeTags.slice(),cost:cp?cp.cost:null,rate:cp?cp.rate:null,...r};
   delete current.parts; delete current.partial;
+  // ---- 30% off RRP: pricing standard for brand-new items (BNWT/BNWOT) when an RRP is entered.
+  const rrpNum=parseFloat(rrp);
+  const effCond=isSet?worstCondOf(setPieces):cond;
+  const rrp30Price=(rrpNum>0 && (effCond==='BNWT'||effCond==='BNWOT')) ? round50(rrpNum*0.7) : null;
+  const rrp30Obj=rrp30Price!=null ? costFor(rrp30Price) : null;
+  current.rrp30Price=rrp30Price;
+  current.rrp30Cost=rrp30Obj?rrp30Obj.cost:null;
+  current.rrp30Rate=rrp30Obj?rrp30Obj.rate:null;
   // ---- Override price: user types their own price; we work out the cost the
   // same way (brand rate + cash/credit + condition penalty). Works even with no
   // sales history, so you can always price + cost a one-off item.
@@ -957,6 +978,9 @@ function refresh(){
   $('addoverridebtn').style.display = (current.overridePrice!=null) ? 'inline-block' : 'none';
   $('addoverridebtn').disabled = (current.overridePrice==null) || !reqFieldsOk;
   const cm=confMeta[r.conf];
+  const rrp30Block = rrp30Price!=null
+    ? `<div class="rrp30"><span class="rrp30-label">30% off RRP</span> <span class="rrp30-price">${fmt(rrp30Price)}</span>${rrp30Obj?`<span class="rrp30-cost">${payoutLbl} ${fmt(rrp30Obj.cost)} <span style="opacity:.7">(${rrp30Obj.rate}%)</span></span>`:''}<div class="rrp30-why">${esc(effCond)} pricing standard · RRP ${fmt(rrpNum)} less 30%${r.price!=null?(r.price>rrp30Price?' · sales history ('+fmt(r.price)+') is above this':(r.price<rrp30Price?' · sales history ('+fmt(r.price)+') is below this':'')):''}</div></div>`
+    : '';
   const partsBlock = isSet
     ? `<div class="setparts">${r.parts.map(p=>`<div><span>${esc(p.style)}${p.substyle?' › '+esc(p.substyle):''} · ${esc(p.cond)}</span><strong>${p.r&&p.r.price!=null?fmt(p.r.price):'no data'}</strong></div>`).join('')}${(()=>{ const u=Array.from(new Set(setPieces.map(c=>c.cond))); return u.length>1 ? '<div class="meta" style="margin-top:6px">Mixed conditions — payout rate uses the lowest (<strong>'+esc(worstCondOf(setPieces))+'</strong>).</div>' : ''; })()}</div>`
     : '';
@@ -979,10 +1003,11 @@ function refresh(){
       }
     }
     el.innerHTML=`<div><div class="price-label">Suggested listing</div><div class="price-big">—</div></div>
-      <div><span class="confidence ${cm.cls}">${cm.txt}</span><div class="meta" style="margin-top:8px">${isSet?'One or more pieces have no history yet — price the set yourself with <strong>Override price</strong>.':'No history for this combo yet. Price using your judgement.'}</div>${altHint}${partsBlock}</div>`;
+      <div><span class="confidence ${cm.cls}">${cm.txt}</span><div class="meta" style="margin-top:8px">${isSet?'One or more pieces have no history yet — price the set yourself with <strong>Override price</strong>.':'No history for this combo yet. Price using your judgement.'}</div>${altHint}${partsBlock}${rrp30Block}</div>`;
     if(current){ current.tryPrice=null; current.tryCost=null; current.tryRate=null; }
     $('addbtn').disabled=true;
     $('addtrybtn').disabled=true; $('addtrybtn').style.display='none';
+    $('addrrpbtn').disabled=!(current.rrp30Price&&reqFieldsOk); $('addrrpbtn').style.display=current.rrp30Price?'inline-block':'none';
     return;
   } else {
     el.className='result';
@@ -1010,6 +1035,7 @@ function refresh(){
       if(scaled > r.price) ttPrice = scaled;   // only show if it's genuinely higher
       if(ttPrice) ttWhy='Sells through at <strong>'+tt.fr+'%</strong> full price over <strong>'+tt.tn+'</strong> sales — room to push';
     }
+    if(ttPrice!=null && rrp30Price!=null && ttPrice<=rrp30Price){ ttPrice=null; ttWhy=''; }   // Try This only shows if it beats the 30% off RRP price
     if(ttPrice!=null){ ttCostObj = costFor(ttPrice); }
     // expose Try This on current so it can be added to the list
     if(current){ current.tryPrice = ttPrice; current.tryCost = ttCostObj?ttCostObj.cost:null; current.tryRate = ttCostObj?ttCostObj.rate:null; }
@@ -1021,9 +1047,11 @@ function refresh(){
       : `<div style="margin-top:4px"><div class="price-label">${payoutLabel}</div><div class="meta">Set brand rate to see cost</div></div>`;
     el.innerHTML=`<div><div class="price-label">Suggested listing</div><div class="price-big">${fmt(r.price)}</div>${costBlock}</div>
       <div><span class="confidence ${cm.cls}">${cm.txt}</span>
-      <div class="meta" style="margin-top:8px">${basisLine}</div>${partsBlock}${ttBlock}</div>`;
+      <div class="meta" style="margin-top:8px">${basisLine}</div>${partsBlock}${rrp30Block}${ttBlock}</div>`;
   }
   $('addbtn').disabled=!reqFieldsOk;
+  $('addrrpbtn').disabled=!(current.rrp30Price&&reqFieldsOk);
+  $('addrrpbtn').style.display=current.rrp30Price?'inline-block':'none';
   $('addtrybtn').disabled = !(current && current.tryPrice && reqFieldsOk);
   $('addtrybtn').style.display = (current && current.tryPrice) ? 'inline-block' : 'none';
 }
@@ -1095,7 +1123,7 @@ function renderList(){
     const costCell = it.cost!=null ? `${fmt(it.cost)} <span style="color:var(--muted);font-size:.8em">${payTag} ${it.rate}%</span>` : '—';
     return `<tr${i===editIndex?' class="editing"':''}>
       <td>${esc(it.brand)}</td><td>${esc(it.style)}</td><td>${esc(subTxt(it)||'—')}</td><td>${esc(it.size||'—')}</td><td>${esc(condLabel(it))}</td>
-      <td class="num">${it.price?fmt(it.price):'—'}${it.isTry?' <span class="trytag">TRY</span>':''}</td>
+      <td class="num">${it.price?fmt(it.price):'—'}${it.isTry?' <span class="trytag">TRY</span>':''}${it.isRrp30?' <span class="trytag">RRP</span>':''}</td>
       <td class="num">${costCell}</td>
       <td><span class="pill ${cm.cls}">${cm.txt.replace('✓ ','').replace('⚠ ','')}</span></td>
       <td style="text-align:center;white-space:nowrap"><button class="editbtn" data-e="${i}" title="Edit this line">✎</button><button class="del" data-i="${i}" title="Remove">×</button></td>
@@ -1143,6 +1171,7 @@ function setEditUI(on){
   $('addbtn').textContent = on?'✓ Update line':'＋ Add to list';
   $('addtrybtn').textContent = on?'✓ Update with Try This price':'＋ Add Try This price';
   $('addoverridebtn').textContent = on?'✓ Update with override price':'＋ Add override price';
+  $('addrrpbtn').textContent = on?'✓ Update with 30% off RRP price':'＋ Add 30% off RRP price';
   if(on && list[editIndex]){
     const it=list[editIndex];
     $('editBannerText').textContent='Editing line '+(editIndex+1)+' — '+[it.brand,it.descname].filter(Boolean).join(' ');
@@ -1160,6 +1189,10 @@ function commitItem(variant){
     if(!current.tryPrice) return;
     // add the Try This variant: override price/cost/rate with the Try This figures
     item={...current, price:current.tryPrice, cost:current.tryCost, rate:current.tryRate, isTry:true};
+  } else if(variant==='rrp'){
+    if(current.rrp30Price==null) return;
+    // add at the 30% off RRP pricing standard (BNWT/BNWOT)
+    item={...current, price:current.rrp30Price, cost:current.rrp30Cost, rate:current.rrp30Rate, conf:'rrp', basis:'30% off RRP', isRrp30:true};
   } else if(variant==='override'){
     if(current.overridePrice==null) return;
     // add with the user's override price + its computed cost
@@ -1211,6 +1244,12 @@ function startEdit(i){
 $('addbtn').addEventListener('click',()=>commitItem('suggested'));
 $('addtrybtn').addEventListener('click',()=>commitItem('try'));
 $('addoverridebtn').addEventListener('click',()=>commitItem('override'));
+$('addrrpbtn').addEventListener('click',()=>commitItem('rrp'));
+// Number boxes (RRP, Override): stop the mouse wheel / arrow keys from nudging a price you've already set.
+document.querySelectorAll('input[type=number]').forEach(inp=>{
+  inp.addEventListener('wheel',()=>{ if(document.activeElement===inp) inp.blur(); },{passive:true});
+  inp.addEventListener('keydown',e=>{ if(e.key==='ArrowUp'||e.key==='ArrowDown') e.preventDefault(); });
+});
 $('canceleditbtn').addEventListener('click',()=>{ exitEditMode(); renderList(); resetForm(); });
 $('clearbtn').addEventListener('click',()=>{
   if(list.length&&confirm('Clear all items from the list?')){
