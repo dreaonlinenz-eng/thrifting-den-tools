@@ -553,6 +553,35 @@ function mergeEntry(a,b){
   }
   return out;
 }
+// ---- Merge "<Brand> (made in NZ)" with "<Brand>" for PRICE lookups ----
+// Same brand, two title spellings: the data build keeps them as separate pools, so
+// a lookup under one name couldn't see the other's sales. Where BOTH names exist,
+// pool every table entry (weighted by sales count) and give both names the result.
+// Payout rates are untouched -- they stay keyed to whatever brand you pick.
+(function mergeMadeInNZ(){
+  const SUF=/\s*\(made in NZ\)\s*$/i;
+  const tables=['size_ref','bs_ref','ss_ref','bss_ref','tog_ref'];
+  const pools=new Set(Object.keys(PRICING_DATA.bs_ref||{}).map(k=>k.split('|')[0]));
+  const pairs=new Set();   // base names that also exist with the suffix
+  pools.forEach(p=>{ if(SUF.test(p)){ const base=p.replace(SUF,''); if(pools.has(base)) pairs.add(base); } });
+  if(!pairs.size) return;
+  tables.forEach(t=>{
+    const tbl=PRICING_DATA[t]; if(!tbl) return;
+    const groups={};
+    Object.keys(tbl).forEach(k=>{
+      const i=k.indexOf('|'); const b=k.slice(0,i), rest=k.slice(i);
+      const base=b.replace(SUF,'');
+      if(!pairs.has(base)) return;
+      (groups[base+rest]=groups[base+rest]||[]).push(tbl[k]);
+    });
+    Object.keys(groups).forEach(gk=>{
+      const i=gk.indexOf('|'); const base=gk.slice(0,i), rest=gk.slice(i);
+      let m=null; groups[gk].forEach(e=>{ m=mergeEntry(m,e); });
+      tbl[base+rest]={...m};
+      tbl[base+' (made in NZ)'+rest]={...m};
+    });
+  });
+})();
 // ---- Unify SS + LS Bodysuit into a single "Bodysuit" pool ----
 // SS/LS were never distinguished in the product data (only the photo showed
 // sleeve length). So we merge both into a synthetic "Bodysuit" style across
