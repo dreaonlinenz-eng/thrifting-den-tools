@@ -129,6 +129,10 @@ datalist{position:absolute}
     .editbanner{display:none;align-items:center;gap:10px;margin:0 0 16px;padding:9px 14px;background:#fff3d6;border:1px solid var(--gold);border-radius:10px;font-size:13px;font-weight:600;color:#6b4a0f}
     .editbtn{color:var(--forest2);cursor:pointer;font-weight:700;border:none;background:none;font-size:15px;padding:2px 6px;border-radius:6px}
     .editbtn:hover{background:var(--sagebg)}
+    .dupbtn{color:var(--forest2);cursor:pointer;font-weight:700;border:none;background:none;font-size:15px;padding:2px 6px;border-radius:6px}
+    .dupbtn:hover{background:var(--sagebg)}
+    @keyframes dupflash{0%{background:#cfe3d4}100%{background:transparent}}
+    tr.justdup td{animation:dupflash 1.6s ease-out}
     tbody tr.editing{background:#fff3d6}
     tbody tr.editing:hover{background:#ffedc2}
 </style>
@@ -1150,12 +1154,12 @@ function renderList(){
     const cm=confMeta[it.conf];
     const payTag = it.payout==='credit' ? 'credit' : 'cash';
     const costCell = it.cost!=null ? `${fmt(it.cost)} <span style="color:var(--muted);font-size:.8em">${payTag} ${it.rate}%</span>` : '—';
-    return `<tr${i===editIndex?' class="editing"':''}>
+    return `<tr${i===editIndex?' class="editing"':(i===dupFlash?' class="justdup"':'')}>
       <td>${esc(it.brand)}</td><td>${esc(it.style)}</td><td>${esc(subTxt(it)||'—')}</td><td>${esc(it.size||'—')}</td><td>${esc(condLabel(it))}</td>
       <td class="num">${it.price?fmt(it.price):'—'}${it.isTry?' <span class="trytag">TRY</span>':''}${it.isRrp30?' <span class="trytag">RRP</span>':''}</td>
       <td class="num">${costCell}</td>
       <td><span class="pill ${cm.cls}">${cm.txt.replace('✓ ','').replace('⚠ ','')}</span></td>
-      <td style="text-align:center;white-space:nowrap"><button class="editbtn" data-e="${i}" title="Edit this line">✎</button><button class="del" data-i="${i}" title="Remove">×</button></td>
+      <td style="text-align:center;white-space:nowrap"><button class="editbtn" data-e="${i}" title="Edit this line">✎</button><button class="dupbtn" data-d="${i}" title="Duplicate this line (copy appears just below)">⧉</button><button class="del" data-i="${i}" title="Remove">×</button></td>
     </tr>`;
   }).join('');
   w.innerHTML=`<table><thead><tr>
@@ -1172,6 +1176,19 @@ function renderList(){
     renderList();
   }));
   w.querySelectorAll('.editbtn').forEach(b=>b.addEventListener('click',e=>startEdit(+e.currentTarget.dataset.e)));
+  w.querySelectorAll('.dupbtn').forEach(b=>b.addEventListener('click',e=>duplicateLine(+e.currentTarget.dataset.d)));
+}
+// Duplicate a line: an independent copy is inserted straight below the original
+// (all fields, set pieces, size tags, prices). Use ✎ on the copy to change anything.
+let dupFlash=-1;
+function duplicateLine(i){
+  const src=list[i]; if(!src) return;
+  const copy=JSON.parse(JSON.stringify(src));
+  list.splice(i+1,0,copy);
+  if(editIndex>i){ editIndex++; setEditUI(true); }
+  dupFlash=i+1;
+  renderList();
+  setTimeout(()=>{ if(dupFlash===i+1){ dupFlash=-1; renderList(); } },1700);
 }
 function esc(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 
