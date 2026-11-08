@@ -557,6 +557,25 @@ function mergeEntry(a,b){
   }
   return out;
 }
+// ---- North South Merino -> Merino styles (data fix, applied here until the pricing file is rebuilt) ----
+// The live pricing_data.json files this brand's merino jumpers under Knitwear, tops under LS/SS Top and
+// leggings under Pants/Leggings (the brand name contains "merino", so the build never saw it as merino).
+// These are the corrected entries, recalculated with the build script's own method (verified identical to
+// the live numbers before re-classifying). Applies only while the data still has the old classification;
+// once the file is rebuilt with the fixed script it has a 'Merino Sweatshirt/Jumper' entry and this is skipped.
+(function patchNorthSouthMerino(){
+  const D=PRICING_DATA, B='North South Merino|';
+  if(!D.bs_ref || D.bs_ref[B+'Merino Sweatshirt/Jumper'] || !D.bs_ref[B+'Knitwear']) return;
+  const FIX={"size_ref":{"North South Merino|Merino Sweatshirt/Jumper|3y":{"p":14.5,"n":6,"try":15.59,"fr":100,"tn":6},"North South Merino|Merino Top|6y":{"p":6.3,"n":1},"North South Merino|Merino Sweatshirt/Jumper|5y":{"p":15.0,"n":1},"North South Merino|Merino Top|4y":{"p":12.0,"n":7},"North South Merino|Merino Legging|3y":{"p":10.0,"n":1},"North South Merino|Merino Sweatshirt/Jumper|4y":{"p":14.0,"n":5,"try":15.05,"fr":100,"tn":5},"North South Merino|Merino Top|3y":{"p":12.0,"n":5},"North South Merino|Merino Top|7y":{"p":16.0,"n":1},"North South Merino|Merino Sweatshirt/Jumper|6y":{"p":15.0,"n":3},"North South Merino|Merino Top|5y":{"p":11.0,"n":1}},"bs_ref":{"North South Merino|Merino Sweatshirt/Jumper":{"p":15.0,"n":15,"try":16.12,"fr":92,"tn":13},"North South Merino|Merino Top":{"p":12.0,"n":15,"try":12.9,"fr":100,"tn":7},"North South Merino|Merino Legging":{"p":10.0,"n":1}},"ss_ref":{"North South Merino|Merino Top|Long Sleeve|6y":{"p":6.3,"n":1},"North South Merino|Merino Top|Long Sleeve|4y":{"p":12.0,"n":5},"North South Merino|Merino Top|Long Sleeve|3y":{"p":11.5,"n":2},"North South Merino|Merino Top|Long Sleeve|7y":{"p":16.0,"n":1},"North South Merino|Merino Top|Long Sleeve|5y":{"p":11.0,"n":1}},"bss_ref":{"North South Merino|Merino Top|Long Sleeve":{"p":12.0,"n":10,"try":12.9,"fr":100,"tn":5}},"tog_ref":{}};
+  Object.keys(FIX).forEach(t=>{
+    const tbl=D[t]; if(!tbl) return;
+    Object.keys(tbl).forEach(k=>{ if(k.indexOf(B)===0) delete tbl[k]; });
+    Object.assign(tbl,FIX[t]);
+  });
+  D.substyles=D.substyles||{};
+  const mt=D.substyles['Merino Top']=D.substyles['Merino Top']||[];
+  if(mt.indexOf('Long Sleeve')<0) mt.push('Long Sleeve');
+})();
 // ---- Merge "<Brand> (made in NZ)" with "<Brand>" for PRICE lookups ----
 // Same brand, two title spellings: the data build keeps them as separate pools, so
 // a lookup under one name couldn't see the other's sales. Where BOTH names exist,
