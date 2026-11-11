@@ -1980,7 +1980,7 @@ $('sheetbtn').addEventListener('click',()=>{
   const dateStr = fmtDateNice($('pdate').value);
   const customer = ($('customer').value||'').trim();
 
-  let total=0, accepted=0;
+  let total=0, accepted=0, storedCount=0;
   const rowsHtml = list.map(it=>{
     const isAcc = it.accepted!=='no';
     if(isAcc){ accepted++; if(it.cost!=null) total+=it.cost; }
@@ -1990,8 +1990,11 @@ $('sheetbtn').addEventListener('click',()=>{
     const listCell = isAcc ? (it.price!=null?fmt(it.price):'—') : '$0.00';
     const pctCell = isAcc ? (it.rate!=null?it.rate+'%':'—') : '—';
     const payCell = isAcc ? (it.cost!=null?fmt(it.cost):'—') : '$0.00';
-    const rowStyle = isAcc ? '' : ' class="notacc"';
-    const statusTag = isAcc ? '' : ' <span class="tag-no">Not accepted</span>';
+    const isStored = isAcc && !!it.storage;
+    if(isStored) storedCount++;
+    const rowStyle = !isAcc ? ' class="notacc"' : (isStored ? ' class="stored"' : '');
+    const statusTag = !isAcc ? ' <span class="tag-no">Not accepted</span>'
+                    : (isStored ? ' <span class="tag-stored">Stored &middot; '+escHtml(it.storage)+'</span>' : '');
     return `<tr${rowStyle}>
       <td class="item">${escHtml(itemName)}${statusTag}</td>
       <td>${condCell}</td>
@@ -2022,6 +2025,9 @@ $('sheetbtn').addEventListener('click',()=>{
   td.item{font-weight:600}
   td.pay{font-weight:700;color:var(--navy)}
   tr.notacc td{color:var(--muted)}
+  tr.stored td{background:#f1effa}
+  .tag-stored{display:inline-block;background:var(--lilac);color:#3b3d7a;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle;white-space:nowrap}
+  tr.stored td,.tag-stored,.tag-no{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .tag-no{display:inline-block;background:#f6dde1;color:#8a2f3d;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
   .totals{display:flex;justify-content:flex-end;gap:36px;border-top:2px solid var(--pink);padding-top:16px}
   .tbox{text-align:right}
@@ -2055,6 +2061,7 @@ $('sheetbtn').addEventListener('click',()=>{
   <div class="totals">
     <div class="tbox"><div class="lbl">Items reviewed</div><div class="val">${list.length}</div></div>
     <div class="tbox"><div class="lbl">Accepted</div><div class="val">${accepted} <span style="font-size:14px;color:var(--muted)">(${acceptRate}%)</span></div></div>
+    ${storedCount?`<div class="tbox"><div class="lbl">Stored</div><div class="val">${storedCount}</div></div>`:''}
     <div class="tbox pay"><div class="lbl">Total payout</div><div class="val">${fmt(total)}</div></div>
   </div>
   <div class="foot">
