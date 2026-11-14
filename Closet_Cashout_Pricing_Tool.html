@@ -1741,12 +1741,13 @@ function csvRowFor(it, seen){
   let handle=handleFrom(title)||('item-'+Math.random().toString(36).slice(2,8));
   if(seen[handle]){ seen[handle]++; handle=handle+'-'+seen[handle]; } else { seen[handle]=1; }
   const body=buildBody(it);
+  // Stored items get "[STORED] " on the Title column only (handle + SEO title stay clean).
   // Tags: New Arrivals + collection + the item's size tags (no consignor for CCO)
   const tags=['New Arrivals', it.collection].concat(it.sizeTags||[]).filter(Boolean).join(', ');
   const price=it.price!=null?Number(it.price).toFixed(2):'';
   const costItem=it.cost!=null?Number(it.cost).toFixed(2):'';
   const row=[
-    handle, title, body, stripBrackets(it.brand), shopifyCategory(it.style), websiteType(it.style), tags, 'FALSE',
+    handle, (it.storage?'[STORED] ':'')+title, body, stripBrackets(it.brand), shopifyCategory(it.style), websiteType(it.style), tags, 'FALSE',
     'Title','Default Title','CC','shopify','1',
     'deny','manual', price,
     costItem,
