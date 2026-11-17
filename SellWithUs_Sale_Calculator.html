@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sell With Us · Sale Price Calculator</title>
+<style>
+:root{
+  --forest:#1F3D2E; --forest2:#2E5340; --cream:#F4F1EA; --sage:#B7DAC9;
+  --sagebg:#E8F0E8; --paper:#FBF8F3; --ink:#22322a; --muted:#6f7d73;
+  --line:#dbe3dc; --gold:#E4A853; --pink:#C85C6E; --pinkbg:#F7E4E8;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Avenir Next','Segoe UI',system-ui,sans-serif;background:var(--cream);color:var(--ink);line-height:1.5;min-height:100vh}
+.wrap{max-width:900px;margin:0 auto;padding:32px 24px 80px}
+header{display:flex;align-items:baseline;gap:16px;margin-bottom:4px;flex-wrap:wrap}
+h1{font-size:30px;font-weight:800;color:var(--forest);letter-spacing:-.5px}
+.sub{font-size:15px;color:var(--forest2);font-style:italic;font-weight:500}
+.tagline{color:var(--muted);font-size:13.5px;margin-bottom:28px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:24px;box-shadow:0 1px 2px rgba(31,61,46,.04)}
+.grid{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:14px;align-items:end}
+@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}}
+label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--forest2);margin-bottom:6px}
+input,select{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:9px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink);transition:border-color .15s}
+input:focus,select:focus{outline:none;border-color:var(--forest2)}
+.brand-wrap{position:relative}
+.autocomplete-list{position:absolute;left:0;right:0;top:100%;z-index:50;background:#fff;border:1.5px solid var(--forest2);border-top:none;border-radius:0 0 9px 9px;max-height:240px;overflow-y:auto;box-shadow:0 6px 16px rgba(31,61,46,.12)}
+.autocomplete-item{padding:9px 12px;font-size:14px;cursor:pointer;display:flex;justify-content:space-between;gap:10px}
+.autocomplete-item:hover,.autocomplete-item.active{background:var(--sagebg)}
+.autocomplete-item .r{color:var(--muted);font-size:12px;font-weight:600}
+.rate-row{margin-top:14px;display:none}
+.rate-row.show{display:block}
+.result{margin-top:22px;padding:22px;background:var(--sagebg);border-radius:12px;display:none}
+.result.show{display:block}
+.result.warn{background:var(--pinkbg)}
+.res-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:620px){.res-grid{grid-template-columns:1fr;gap:16px}}
+.res-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--forest2);margin-bottom:2px}
+.res-big{font-size:2.4rem;font-weight:800;color:var(--forest);line-height:1.05}
+.res-was{font-size:13px;color:var(--muted);margin-top:2px}
+.res-big.cost{color:var(--pink)}
+.res-meta{font-size:12.5px;color:var(--forest2);margin-top:4px}
+.divider{height:1px;background:var(--line);margin:18px 0}
+.explain{font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.5}
+.pill{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:20px;padding:3px 10px;font-size:11.5px;font-weight:600;color:var(--forest2);margin-right:6px;margin-top:6px}
+.note{font-size:12px;color:var(--muted);margin-top:20px;padding-top:16px;border-top:1px dashed var(--line)}
+.warnmsg{color:var(--pink);font-weight:600;font-size:13px;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Sell With Us</h1>
+    <span class="sub">sale price calculator</span>
+  </header>
+  <p class="tagline">When a consignment hits 4 weeks live, remaining items go 30% off. Enter the current price to get the new sale price and consignor cost. The Thrifting Den.</p>
+
+  <div class="card">
+    <div class="grid">
+      <div class="brand-wrap">
+        <label for="brand">Brand</label>
+        <input id="brand" autocomplete="off" placeholder="Start typing…">
+        <div id="ac" class="autocomplete-list" style="display:none"></div>
+      </div>
+      <div>
+        <label for="price">Current price ($)</label>
+        <input id="price" type="number" inputmode="decimal" min="0" step="0.50" placeholder="e.g. 20">
+      </div>
+      <div>
+        <label for="payout">Payout type</label>
+        <select id="payout">
+          <option value="cash">Bank transfer (cash)</option>
+          <option value="credit">Store credit</option>
+        </select>
+      </div>
+      <div>
+        <label for="cond">Condition</label>
+        <select id="cond">
+          <option value="full">EUC / Like New / BNWT</option>
+          <option value="flaw">VGUC / GUC / Play (minor flaws)</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="rateRow" class="rate-row">
+      <label for="variant">Brand rate · pick the range</label>
+      <select id="variant"></select>
+    </div>
+
+    <div id="result" class="result">
+      <div class="res-grid">
+        <div>
+          <div class="res-label">New sale price · 30% off</div>
+          <div class="res-big" id="salePrice">—</div>
+          <div class="res-was" id="wasPrice"></div>
+        </div>
+        <div>
+          <div class="res-label" id="costLabel">Consignor cost</div>
+          <div class="res-big cost" id="cost">—</div>
+          <div class="res-meta" id="costMeta"></div>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="explain" id="explain"></div>
+    </div>
+
+    <div class="note" id="note">Brand rates match the Sell With Us pricing tool. Store credit adds +20% over cash; VGUC and below drops the rate by 20 percentage points off the EUC rate. Cost is always calculated on the new (discounted) sale price.</div>
+  </div>
+</div>
+
+<script>
+// Brand rates come from the central pricing_data.json (the same file the Sell With Us / Closet Cashout
+// pricing tools use), so adding a brand there updates this calculator too. Nothing to edit in this file.
+// If the pricing file is re-uploaded in Shopify, update the ?v= number below to match the tools.
+const PRICING_URL = "https://cdn.shopify.com/s/files/1/0574/0023/0062/files/pricing_data_1.json?v=1794267724";
+let BRAND_RATES = {};
+
+// Build a flat searchable list of {display, key, variants:[{label,rate}]} (filled once the pricing data loads)
+let BRANDS = [];
+function buildBrands(){
+  BRANDS = Object.entries(BRAND_RATES).map(([key,v])=>{
+    const variants = v.variants ? v.variants.map(x=>({label:x.label,rate:x.rate})) : [{label:null,rate:v.rate}];
+    return {key, display:v.display||key, variants};
+  }).sort((a,b)=>a.display.localeCompare(b.display));
+}
+
+const $ = id => document.getElementById(id);
+let activeBrand = null;   // selected brand object
+let acIndex = -1;
+
+function fmt(n){ return '$'+n.toFixed(2); }
+function round50(n){ return Math.round(n*2)/2; }
+
+// ---------- Brand autocomplete ----------
+function renderAC(items){
+  const box=$('ac');
+  if(!items.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.innerHTML = items.map((b,i)=>{
+    const rates = b.variants.map(v=>v.rate+'%').join(' / ');
+    return `<div class="autocomplete-item" data-i="${i}"><span>${b.display}</span><span class="r">${rates} cash</span></div>`;
+  }).join('');
+  box.style.display='block';
+  [...box.children].forEach(el=>{
+    el.onclick=()=>{ chooseBrand(items[+el.dataset.i]); };
+  });
+}
+function filterBrands(q){
+  q=q.trim().toLowerCase();
+  if(!q) return [];
+  const starts=[], incl=[];
+  for(const b of BRANDS){
+    const d=b.display.toLowerCase();
+    if(d.startsWith(q)) starts.push(b);
+    else if(d.includes(q)) incl.push(b);
+  }
+  return starts.concat(incl).slice(0,10);
+}
+$('brand').addEventListener('input',e=>{
+  activeBrand=null; acIndex=-1;
+  renderAC(filterBrands(e.target.value));
+  refreshVariants(); calc();
+});
+$('brand').addEventListener('keydown',e=>{
+  const box=$('ac'); const items=[...box.children];
+  if(box.style.display==='none'||!items.length) return;
+  if(e.key==='ArrowDown'){e.preventDefault();acIndex=Math.min(acIndex+1,items.length-1);}
+  else if(e.key==='ArrowUp'){e.preventDefault();acIndex=Math.max(acIndex-1,0);}
+  else if(e.key==='Enter'){e.preventDefault(); if(acIndex>=0) items[acIndex].click(); return;}
+  else return;
+  items.forEach((el,i)=>el.classList.toggle('active',i===acIndex));
+});
+document.addEventListener('click',e=>{ if(!$('brand').contains(e.target)&&!$('ac').contains(e.target)) $('ac').style.display='none'; });
+
+function chooseBrand(b){
+  activeBrand=b;
+  $('brand').value=b.display;
+  $('ac').style.display='none';
+  refreshVariants();
+  calc();
+}
+function refreshVariants(){
+  const row=$('rateRow'), sel=$('variant');
+  if(activeBrand && activeBrand.variants.length>1){
+    sel.innerHTML=activeBrand.variants.map((v,i)=>`<option value="${i}">${v.label} — ${v.rate}% cash</option>`).join('');
+    row.classList.add('show');
+  } else {
+    row.classList.remove('show'); sel.innerHTML='';
+  }
+}
+$('variant').addEventListener('change',calc);
+['price','payout','cond'].forEach(id=>$(id).addEventListener('input',calc));
+$('cond').addEventListener('change',calc);
+$('payout').addEventListener('change',calc);
+
+// ---------- Core calculation ----------
+function calc(){
+  const price=parseFloat($('price').value);
+  const res=$('result');
+  if(!activeBrand || isNaN(price) || price<=0){ res.classList.remove('show'); return; }
+
+  // base cash rate (EUC-level)
+  let baseCash;
+  if(activeBrand.variants.length>1){
+    const vi=parseInt($('variant').value||'0',10);
+    baseCash=activeBrand.variants[vi].rate;
+  } else {
+    baseCash=activeBrand.variants[0].rate;
+  }
+
+  const payout=$('payout').value;      // cash | credit
+  const cond=$('cond').value;          // full | flaw
+
+  // EUC-level rate for the chosen payout type
+  let rate = payout==='credit' ? baseCash+20 : baseCash;   // credit = +20pp
+  // VGUC & below: -20pp off the EUC rate
+  if(cond==='flaw') rate = rate-20;
+
+  const salePrice = Math.round(price*0.7*100)/100;   // 30% off, exact to the cent
+  const cost = salePrice*(rate/100);
+
+  $('salePrice').textContent=fmt(salePrice);
+  $('wasPrice').textContent='was '+fmt(price);
+  $('cost').textContent=fmt(cost);
+  $('costLabel').textContent = payout==='credit' ? 'Store credit cost' : 'Cash payout cost';
+
+  const eucRate = payout==='credit' ? baseCash+20 : baseCash;
+  $('costMeta').innerHTML =
+    `<span class="pill">${rate}% of sale price</span>` +
+    (cond==='flaw' ? `<span class="pill">−20pp flaw</span>` : '') +
+    (payout==='credit' ? `<span class="pill">+20pp credit</span>` : '');
+
+  const flawTxt = cond==='flaw'
+    ? ` Because the item is VGUC or below, the ${eucRate}% ${payout==='credit'?'store-credit':'cash'} rate drops by 20 points to <strong>${rate}%</strong>.`
+    : '';
+  $('explain').innerHTML =
+    `<strong>${activeBrand.display}</strong> pays <strong>${baseCash}%</strong> cash at EUC. `+
+    (payout==='credit' ? `Store credit adds 20 points → <strong>${baseCash+20}%</strong>.` : '')+
+    flawTxt+
+    ` The item drops 30% from ${fmt(price)} to <strong>${fmt(salePrice)}</strong>, and the ${payout==='credit'?'credit':'cash'} cost is ${rate}% of that = <strong>${fmt(cost)}</strong>.`;
+
+  res.classList.toggle('warn', rate<=0);
+  if(rate<=0){
+    $('cost').textContent=fmt(0);
+    $('explain').innerHTML += `<div class="warnmsg">This combination results in a 0% payout — double-check the condition and brand rate.</div>`;
+  }
+  res.classList.add('show');
+}
+
+// ---------- Load the central pricing data ----------
+(function(){
+  const bar=document.createElement('div');
+  bar.style.cssText='position:fixed;top:0;left:0;right:0;padding:10px 16px;text-align:center;font-size:14px;z-index:9999;background:#E4A853;color:#22322a;';
+  bar.textContent='Loading brand rates…';
+  document.body.prepend(bar);
+  $('brand').disabled=true;
+  fetch(PRICING_URL)
+    .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(data=>{
+      BRAND_RATES=data.brand_rates||{};
+      if(!Object.keys(BRAND_RATES).length) throw new Error('no brand_rates in pricing data');
+      buildBrands();
+      bar.remove(); $('brand').disabled=false; $('brand').focus();
+    })
+    .catch(err=>{
+      bar.style.background='#C85C6E'; bar.style.color='#fff';
+      bar.textContent='Could not load brand rates ('+err.message+'). Try refreshing the page.';
+    });
+})();
+</script>
+</body>
+</html>
