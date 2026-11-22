@@ -321,6 +321,9 @@ $('price').addEventListener('input', () => { $('price').value = $('price').value
 $('rate').addEventListener('input', () => { $('rate').value = $('rate').value.replace(/[^0-9]/g,'').slice(0,3); });
 
 // ---------- items ----------
+function isCredit(){ return $('payout').value === 'credit'; }
+// store credit adds 10 percentage points to every rate (same as the main Closet Cashout tool)
+function effPct(it){ return Math.round(it.rate*100) + (isCredit() ? 10 : 0); }
 function descText(it){
   const d = it.desc.trim(), bk = normKey(it.brand);
   return normKey(d).startsWith(bk) ? d : (it.brand.replace(/ \+ /g,' & ') + ' ' + d);
@@ -363,9 +366,9 @@ function renderList(){
   $('gen').disabled = !items.length;
   if(!items.length){ w.innerHTML = '<div class="empty">No items yet.</div>'; return; }
   let tot = 0;
-  const rows = items.map((it,i) => ({it,i})).reverse().map(({it,i}) => { const pay = it.price * it.rate; tot += pay;
-    return `<tr><td class="l">${esc(descText(it))}${it.notes?`<div class="note" style="margin:0">${esc(it.notes)}</div>`:''}</td><td>${esc(it.cond)}</td><td>${Math.round(it.rate*100)}%</td><td class="num">${fmt(it.price)}</td><td class="num">${fmt(pay)}</td><td style="white-space:nowrap"><button class="iconbtn" data-e="${i}" title="Edit">✎</button><button class="iconbtn" data-d="${i}" title="Remove">✕</button></td></tr>`; }).join('');
-  w.innerHTML = `<table><thead><tr><th class="l">Item description</th><th>Condition</th><th>% Payout</th><th>Price</th><th>Payout</th><th></th></tr></thead><tbody>${rows}<tr class="total"><td class="l" colspan="4">Total payout</td><td class="num">${fmt(tot)}</td><td></td></tr></tbody></table>`;
+  const rows = items.map((it,i) => ({it,i})).reverse().map(({it,i}) => { const pay = it.price * effPct(it) / 100; tot += pay;
+    return `<tr><td class="l">${esc(descText(it))}${it.notes?`<div class="note" style="margin:0">${esc(it.notes)}</div>`:''}</td><td>${esc(it.cond)}</td><td>${effPct(it)}%</td><td class="num">${fmt(it.price)}</td><td class="num">${fmt(pay)}</td><td style="white-space:nowrap"><button class="iconbtn" data-e="${i}" title="Edit">✎</button><button class="iconbtn" data-d="${i}" title="Remove">✕</button></td></tr>`; }).join('');
+  w.innerHTML = `<table><thead><tr><th class="l">Item description</th><th>Condition</th><th>% Payout</th><th>Price</th><th>Payout</th><th></th></tr></thead><tbody>${rows}<tr class="total"><td class="l" colspan="4">Total payout</td><td class="num">${fmt(tot)}</td><td></td></tr></tbody></table>${isCredit()?'<div class="note">Store credit selected: 10% is added to every payout rate.</div>':''}`;
 }
 $('listWrap').addEventListener('click', e => {
   const d = e.target.closest('[data-d]'), ed = e.target.closest('[data-e]');
@@ -394,7 +397,7 @@ function fileName(){
   return `EOC_${n}_${mon}`;
 }
 function showFname(){ $('fname').textContent = fileName(); save(); }
-$('customer').addEventListener('input', showFname); $('mon').addEventListener('input', showFname); $('pdate').addEventListener('change', save); $('payout').addEventListener('change', save);
+$('customer').addEventListener('input', showFname); $('mon').addEventListener('input', showFname); $('pdate').addEventListener('change', save); $('payout').addEventListener('change', () => { save(); renderList(); });
 
 // ---------- purchase sheet (printable -> Save as PDF) ----------
 function fmtDateNice(v){ if(!v) return ''; const [y,m,d] = v.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString('en-NZ',{day:'numeric',month:'long',year:'numeric'}); }
@@ -403,8 +406,8 @@ function generate(){
   const dateStr = fmtDateNice($('pdate').value);
   const customer = $('customer').value.trim();
   let total = 0;
-  const rows = items.slice().reverse().map(it => { const pay = it.price*it.rate; total += pay;
-    return `<tr><td class="item">${esc(descText(it))}${it.notes?`<div class="inote">${esc(it.notes)}</div>`:''}</td><td>${esc(it.cond)}</td><td class="r">${fmt(it.price)}</td><td class="r">${Math.round(it.rate*100)}%</td><td class="r pay">${fmt(pay)}</td></tr>`; }).join('');
+  const rows = items.slice().reverse().map(it => { const pay = it.price*effPct(it)/100; total += pay;
+    return `<tr><td class="item">${esc(descText(it))}${it.notes?`<div class="inote">${esc(it.notes)}</div>`:''}</td><td>${esc(it.cond)}</td><td class="r">${fmt(it.price)}</td><td class="r">${effPct(it)}%</td><td class="r pay">${fmt(pay)}</td></tr>`; }).join('');
   const title = esc(fileName());
   const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
 <style>
@@ -455,7 +458,7 @@ function generate(){
     <div class="tbox pay"><div class="lbl">Total payout</div><div class="val">${fmt(total)}</div></div>
   </div>
   <div class="foot">
-    Payout shown is ${esc(payoutType.toLowerCase())}. Price is the original full price of each item; your payout is a percentage of that based on the brand.
+    Payout shown is ${esc(payoutType.toLowerCase())}${isCredit()?' (includes a 10% store credit bonus on each rate)':''}. Price is the original full price of each item; your payout is a percentage of that based on the brand.
     This sheet confirms our purchase of the items above.
   </div>
 </body></html>`;
