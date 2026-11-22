@@ -164,6 +164,44 @@ const fmt = n => '$' + Number(n).toFixed(2);
 let DATA = null, BRANDS = [];       // BRANDS: {name, key, rate(0-100|null), picks|null}
 let items = [], editIdx = -1, chosen = null;
 
+// ---------- brands whose rate depends on the item ----------
+// Mirrors the "auto" rules in the main Closet Cashout tool. The matching range is picked from the
+// item description (and size); the Range box lets you override it. The 14 brands: Bonds, Nature Baby,
+// Mum 2 Mum, Cry Wolf, Carhartt, OshKosh, The North Face, Timberland, Jordan, Adidas, Converse, Nike, Peter Alexander.
+const FOOT = /shoe|sneaker|trainer|boot|sandal|slipper|jandal|crocs/;
+function sizeInfo(desc){
+  const dl = String(desc).toLowerCase(); let f = '', m;
+  if((m = dl.match(/(\d+)\s*-\s*(\d+)\s*m(?:onths?)?\b/))) f = m[1]+'-'+m[2]+'m';
+  else if(/\bnewborn\b|\bnb\b/.test(dl)) f = 'nb';
+  else if(/\bprem\b/.test(dl)) f = 'prem';
+  else if((m = dl.match(/(\d+)\s*-\s*(\d+)\s*y/))) f = m[1]+'-'+m[2]+'y';
+  else if((m = dl.match(/(\d+)\s*y\b/))) f = m[1]+'y';
+  else if((m = dl.match(/(\d+)\s*m\b/))) f = m[1]+'m';
+  return {size:f, yearPlus: /[0-9]y$/.test(f) || ['12-18m','18-24m','12m','18m','24m'].includes(f)};
+}
+const AUTO = (() => {
+  const two = (a, b, test) => ({opts:[{label:a[0], rate:a[1]}, {label:b[0], rate:b[1]}], pick:(d,s) => test(d,s) ? 0 : 1});
+  const A = {};
+  A['bonds'] = {opts:[{label:'Wondersuits 1y+', rate:30}, {label:'PJ sets', rate:30}, {label:'Wondersuits (prem - 6-12m) and all other clothing', rate:20}],
+    pick:(d,s) => /pj set/.test(d) ? 1 : ((/wondersuit|\bws\b/.test(d) && s.yearPlus) ? 0 : 2)};
+  A['nature baby'] = two(['Size 1y and over', 40], ['Under 1y', 30], (d,s) => s.yearPlus);
+  A['mum 2 mum'] = {opts:[{label:'Rainwear and all other clothing', rate:30}, {label:'Sleepwear / swaddles / PJs', rate:20}],
+    pick:d => /rain/.test(d) ? 0 : (/sleep|swaddle|pj/.test(d) ? 1 : 0)};
+  const cw = two(['Jackets, rainwear & gumboots', 40], ['All other clothing', 30], d => /rain|gumboot|jacket/.test(d));
+  A['cry wolf'] = cw; A['crywolf'] = cw;
+  A['carhartt'] = two(['Overalls & jackets', 40], ['All other clothing', 20], d => /overall|jacket/.test(d));
+  A['oshkosh'] = two(['Overalls', 40], ['All other clothing', 10], d => /overall/.test(d));
+  A['the north face'] = two(['Jackets', 40], ['All other clothing', 30], d => /jacket/.test(d));
+  A['timberland'] = two(['Footwear', 30], ['Clothing', 20], d => FOOT.test(d));
+  A['jordan'] = two(['Footwear', 40], ['Clothing', 20], d => FOOT.test(d));
+  A['adidas'] = two(['Footwear', 30], ['Clothing', 20], d => FOOT.test(d));
+  A['converse'] = two(['Footwear', 30], ['Clothing', 10], d => FOOT.test(d) || /crib|hi top|lo top|ctas/.test(d));
+  A['nike'] = two(['Footwear', 30], ['Clothing', 20], d => FOOT.test(d) || /air max|air force/.test(d));
+  A['peter alexander'] = two(['PJ sets', 30], ['All other clothing', 20], d => /pj set|pj suit|pyjama/.test(d));
+  return A;
+})();
+let lastKey = null, rateTouched = false;
+
 async function resolveDataUrl(){
   try{
     const html = await fetch(CCO_TOOL_URL + '?cb=' + Date.now(), {cache:'no-store'}).then(r => { if(!r.ok) throw 0; return r.text(); });
@@ -197,7 +235,7 @@ function buildBrands(){
   for(const b of (DATA.brands||[])){
     const key = normKey(b); if(seen.has(key)) continue; seen.add(key);
     const p = picks[b];
-    list.push({name:b, key,
+    list.push({name:b, key, auto: AUTO[key] || null,
       rate: (key in rateByKey) ? Math.round(rateByKey[key]*100) : null,
       picks: p ? p.map(v => ({label:v[0], rate:Math.round(v[1]*100)})) : null});
   }
@@ -212,7 +250,7 @@ function buildBrands(){
 }
 
 // ---------- brand autocomplete ----------
-function findBrand(text){ const k = normKey(text); return BRANDS.find(b => b.key === k) || null; }
+function findBrand(text){ const k = normKey(text); return BRANDS.find(b => b.key === k) || BRANDS.find(b => b.key.replace(/ /g,'') === k.replace(/ /g,'')) || null; }
 function acRender(){
   const q = normKey($('brand').value);
   let res = BRANDS;
@@ -223,7 +261,7 @@ function acRender(){
   res = res.slice(0, 60);
   const box = $('ac');
   if(!res.length){ box.classList.remove('show'); return; }
-  box.innerHTML = res.map((b,i) => `<div data-i="${i}">${esc(b.name)}${b.picks?`<span class="tag">pick range</span>`:(b.rate!=null?`<span class="tag">${b.rate}%</span>`:`<span class="tag none">no rate</span>`)}</div>`).join('');
+  box.innerHTML = res.map((b,i) => `<div data-i="${i}">${esc(b.name)}${(b.picks||b.auto)?`<span class="tag">pick range</span>`:(b.rate!=null?`<span class="tag">${b.rate}%</span>`:`<span class="tag none">no rate</span>`)}</div>`).join('');
   box._res = res; box._act = -1; box.classList.add('show');
 }
 function acChoose(b){ $('brand').value = b.name; $('ac').classList.remove('show'); onBrand(); $('desc').focus(); }
@@ -245,22 +283,38 @@ $('brand').addEventListener('keydown', e => {
 $('ac').addEventListener('mousedown', e => { const d = e.target.closest('[data-i]'); if(d){ e.preventDefault(); acChoose($('ac')._res[+d.dataset.i]); } });
 
 // ---------- brand -> rate ----------
+function autoPick(){
+  if(!chosen || !chosen.auto || rateTouched) return;
+  const d = $('desc').value.toLowerCase();
+  $('variant').selectedIndex = chosen.auto.pick(d, sizeInfo(d));
+  $('rate').value = $('variant').value;
+}
 function onBrand(){
   chosen = findBrand($('brand').value);
+  const key = chosen ? chosen.key : null;
+  if(key !== lastKey){ lastKey = key; rateTouched = false; }
   const vw = $('varWrap'), vs = $('variant'), hint = $('rateHint');
+  const vars = chosen ? (chosen.picks || (chosen.auto && chosen.auto.opts) || null) : null;
   vs.innerHTML = '';
-  if(chosen && chosen.picks){
-    chosen.picks.forEach(v => { const o = document.createElement('option'); o.value = v.rate; o.textContent = `${v.label} (${v.rate}%)`; vs.appendChild(o); });
+  if(vars){
+    vars.forEach(v => { const o = document.createElement('option'); o.value = v.rate; o.textContent = `${v.label} (${v.rate}%)`; vs.appendChild(o); });
     vw.style.display = '';
-    $('rate').value = vs.value;
-    hint.textContent = 'This brand has more than one rate. Pick the range.';
+    if(chosen.auto){
+      if(!rateTouched) autoPick();
+      hint.textContent = 'Rate depends on the item. Picked from the description. Check the Range box.';
+    }else{
+      $('rate').value = vs.value;
+      hint.textContent = 'This brand has more than one rate. Pick the range.';
+    }
   }else{
     vw.style.display = 'none';
     if(chosen && chosen.rate != null){ $('rate').value = chosen.rate; hint.textContent = ''; }
     else{ $('rate').value = ''; hint.textContent = $('brand').value.trim() ? (chosen ? 'No CCO rate on file for this brand. Enter the % yourself.' : 'Brand not in the list. Enter the % yourself.') : ''; }
   }
 }
-$('variant').addEventListener('change', () => { $('rate').value = $('variant').value; });
+$('variant').addEventListener('change', () => { $('rate').value = $('variant').value; rateTouched = true; });
+$('rate').addEventListener('input', () => { rateTouched = true; });
+$('desc').addEventListener('input', autoPick);
 
 // numbers only in the price / rate boxes
 $('price').addEventListener('input', () => { $('price').value = $('price').value.replace(/[^0-9.]/g,'').replace(/(\..*)\./g,'$1'); });
@@ -298,7 +352,8 @@ function endEdit(){ editIdx = -1; $('formtitle').textContent = 'Add item'; $('ad
 function startEdit(i){
   const it = items[i]; editIdx = i;
   $('brand').value = it.brand; onBrand();
-  $('desc').value = it.desc; $('cond').value = it.cond; $('price').value = it.price; $('rate').value = Math.round(it.rate*100); $('notes').value = it.notes || '';
+  rateTouched = true; $('desc').value = it.desc; $('cond').value = it.cond; $('price').value = it.price; $('rate').value = Math.round(it.rate*100); $('notes').value = it.notes || '';
+  [...$('variant').options].forEach((o,i) => { if(+o.value === Math.round(it.rate*100)) $('variant').selectedIndex = i; });
   $('formtitle').textContent = 'Edit item ' + (i+1); $('add').textContent = 'Save changes'; $('cancel').style.display = '';
   window.scrollTo({top:0, behavior:'smooth'});
 }
