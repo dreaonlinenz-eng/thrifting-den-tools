@@ -169,6 +169,10 @@ datalist{position:absolute}
         <label for="tog">Tog / weight <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted)">(optional)</span></label>
         <select id="tog"><option value="">Not stated</option></select>
       </div>
+      <div class="substyle-wrap" id="fireWrap">
+        <label for="fire" style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer"><input type="checkbox" id="fire" style="width:auto;margin:0"> Add fire label image</label>
+        <select id="fireColour" style="display:none;margin-top:6px"><option value="white">White fire label</option><option value="red">Red fire label</option></select>
+      </div>
       <div>
         <label for="size">Size</label>
         <input id="size" list="sizelist" placeholder="e.g. 0-3m" autocomplete="off">
@@ -381,6 +385,24 @@ function refreshSubstyleOptions(){
 // rating is actually stated on the garment. Most items have none, so it stays
 // hidden unless the style (and a chosen sub-style) could carry one.
 const TOG_STYLES = ['Sleepwear','Merino Sleepwear'];
+
+// ---- Fire label image (sleepwear only) ----
+// Optional per-item tick: adds a White or Red fire-label image URL to the Shopify
+// CSV (Image Src, position 1) so that image shows first on the listing.
+const FIRE_LABELS={
+  white:'https://cdn.shopify.com/s/files/1/0574/0023/0062/files/white_sleep.jpg?v=1774340461',
+  red:'https://cdn.shopify.com/s/files/1/0574/0023/0062/files/red_sleep.jpg?v=1771885075'
+};
+function refreshFireOption(){
+  const applies=TOG_STYLES.includes($('style').value);
+  const wrap=$('fireWrap');
+  if(applies){ wrap.classList.add('show'); }
+  else { wrap.classList.remove('show'); $('fire').checked=false; }
+  $('fireColour').style.display=$('fire').checked?'block':'none';
+}
+function fireLabelValue(){
+  return (TOG_STYLES.includes($('style').value) && $('fire').checked) ? $('fireColour').value : '';
+}
 function refreshTogOptions(){
   const style=$('style').value, substyle=$('substyle').value;
   const wrap=$('togWrap'), sel=$('tog');
@@ -395,6 +417,7 @@ function refreshTogOptions(){
     wrap.classList.remove('show');
     sel.value='';
   }
+  refreshFireOption();
 }
 
 // ---- Matching Set builder ----
@@ -993,7 +1016,7 @@ function refresh(){
   // lookup, only the "commit this item" actions are gated.
   const reqFieldsOk = !!descname && sizeTags.length>0;
   $('reqFieldsHint').style.display = reqFieldsOk ? 'none' : 'block';
-  current={brand,style,substyle,tog,size,cond:(isSet?worstCondOf(setPieces):cond),payout,descname,rrp,condfree,consignor,fabric,collection,
+  current={brand,style,substyle,tog,fireLabel:fireLabelValue(),size,cond:(isSet?worstCondOf(setPieces):cond),payout,descname,rrp,condfree,consignor,fabric,collection,
            components:(isSet?setPieces.map(c=>({style:c.style,substyle:c.substyle,tog:c.tog,cond:c.cond})):null),
            sizeTags:sizeTags.slice(),cost:cp?cp.cost:null,rate:cp?cp.rate:null,...r};
   delete current.parts; delete current.partial;
@@ -1107,13 +1130,14 @@ function refresh(){
   $('addtrybtn').disabled = !(current && current.tryPrice && reqFieldsOk);
   $('addtrybtn').style.display = (current && current.tryPrice) ? 'inline-block' : 'none';
 }
-['brand','style','substyle','tog','size','cond','payout','rate','descname','rrp','condfree','consignor','fabric','collection','override'].forEach(id=>{
+['brand','style','substyle','tog','fire','fireColour','size','cond','payout','rate','descname','rrp','condfree','consignor','fabric','collection','override'].forEach(id=>{
   $(id).addEventListener('input',refresh);
   $(id).addEventListener('change',refresh);
 });
 // when style changes, rebuild the sub-style dropdown before refreshing
 $('style').addEventListener('change',()=>{ refreshSubstyleOptions(); refresh(); });
 $('substyle').addEventListener('change',()=>{ refreshTogOptions(); refresh(); });
+$('fire').addEventListener('change',()=>{ refreshFireOption(); refresh(); });
 // when brand changes, rebuild the rate picker
 $('brand').addEventListener('input',()=>{ refreshRateOptions(); refresh(); });
 $('brand').addEventListener('change',()=>{ refreshRateOptions(); refresh(); });
@@ -1220,6 +1244,7 @@ function resetForm(){
   });
   // condition has its own sensible default (EUC), not the first option
   $('cond').value='EUC';
+  $('fire').checked=false; $('fireColour').value='white';
   // clear size-tag chips for the next item
   sizeTags=[]; lastSizeForTags=''; renderSizeTags();
   refreshSubstyleOptions(); refreshTogOptions(); refreshRateOptions();
@@ -1289,6 +1314,8 @@ function startEdit(i){
     refreshTogOptions();
     $('tog').value=it.tog||'';
   }
+  $('fire').checked=!!it.fireLabel; $('fireColour').value=it.fireLabel||'white';
+  refreshFireOption();
   $('cond').value=it.cond;
   $('size').value=it.size||'';
   lastSizeForTags=it.size||'';
@@ -1661,7 +1688,7 @@ $('csvbtn').addEventListener('click',()=>{
     'Variant Inventory Qty',
     'Variant Inventory Policy','Variant Fulfillment Service','Variant Price',
     'Cost per item','Variant Requires Shipping','Variant Taxable','Status',
-    'SEO Title','SEO Description'];
+    'SEO Title','SEO Description','Image Src','Image Position'];
   const seen={};
   const lines=[cols.join(',')];
   list.forEach(it=>{
@@ -1681,7 +1708,8 @@ $('csvbtn').addEventListener('click',()=>{
       'deny','manual', price,
       costItem,
       'TRUE','TRUE','draft',
-      buildSeoTitle(it), buildSeoDescription(it)
+      buildSeoTitle(it), buildSeoDescription(it),
+      FIRE_LABELS[it.fireLabel]||'', FIRE_LABELS[it.fireLabel]?'1':''
     ];
     lines.push(row.map(csvCell).join(','));
   });

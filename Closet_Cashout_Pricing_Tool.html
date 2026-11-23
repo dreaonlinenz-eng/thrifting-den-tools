@@ -190,6 +190,10 @@ datalist{position:absolute}
         <label for="tog">Tog / weight <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted)">(optional)</span></label>
         <select id="tog"><option value="">Not stated</option></select>
       </div>
+      <div class="substyle-wrap" id="fireWrap">
+        <label for="fire" style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer"><input type="checkbox" id="fire" style="width:auto;margin:0"> Add fire label image</label>
+        <select id="fireColour" style="display:none;margin-top:6px"><option value="white">White fire label</option><option value="red">Red fire label</option></select>
+      </div>
       <div>
         <label for="size">Size</label>
         <input id="size" list="sizelist" placeholder="e.g. 0-3m" autocomplete="off">
@@ -447,6 +451,24 @@ function refreshSubstyleOptions(){
 // rating is actually stated on the garment. Most items have none, so it stays
 // hidden unless the style (and a chosen sub-style) could carry one.
 const TOG_STYLES = ['Sleepwear','Merino Sleepwear'];
+
+// ---- Fire label image (sleepwear only) ----
+// Optional per-item tick: adds a White or Red fire-label image URL to the Shopify
+// CSV (Image Src, position 1) so that image shows first on the listing.
+const FIRE_LABELS={
+  white:'https://cdn.shopify.com/s/files/1/0574/0023/0062/files/white_sleep.jpg?v=1774340461',
+  red:'https://cdn.shopify.com/s/files/1/0574/0023/0062/files/red_sleep.jpg?v=1771885075'
+};
+function refreshFireOption(){
+  const applies=TOG_STYLES.includes($('style').value);
+  const wrap=$('fireWrap');
+  if(applies){ wrap.classList.add('show'); }
+  else { wrap.classList.remove('show'); $('fire').checked=false; }
+  $('fireColour').style.display=$('fire').checked?'block':'none';
+}
+function fireLabelValue(){
+  return (TOG_STYLES.includes($('style').value) && $('fire').checked) ? $('fireColour').value : '';
+}
 function refreshTogOptions(){
   const style=$('style').value, substyle=$('substyle').value;
   const wrap=$('togWrap'), sel=$('tog');
@@ -461,6 +483,7 @@ function refreshTogOptions(){
     wrap.classList.remove('show');
     sel.value='';
   }
+  refreshFireOption();
 }
 
 // ---- Matching Set builder ----
@@ -1049,7 +1072,7 @@ function refresh(){
   // Payout is computed on the LISTING price using the CCO brand %.
   const payFor=(p)=> isSet ? payoutForSet(p,brand,setPieces,descname,size,pkey,sc) : payoutFor(p,brand,style,descname,size,pkey,sc);
   const po = payFor(r.price);
-  current={brand,style,substyle,tog,size,cond:(isSet?worstCondOf(setPieces):cond),payout,accepted,pkey,descname,rrp,condfree,fabric,collection,storage:($('storage').value||''),
+  current={brand,style,substyle,tog,fireLabel:fireLabelValue(),size,cond:(isSet?worstCondOf(setPieces):cond),payout,accepted,pkey,descname,rrp,condfree,fabric,collection,storage:($('storage').value||''),
            components:(isSet?setPieces.map(c=>({style:c.style,substyle:c.substyle,tog:c.tog,cond:c.cond})):null),
            sizeTags:sizeTags.slice(),
            cost: po?po.payout:null, rate: po?po.pct:null, ...r};
@@ -1157,13 +1180,14 @@ function refresh(){
   $('addtrybtn').disabled = !(current && current.tryPrice && reqFieldsOk);
   $('addtrybtn').style.display = (current && current.tryPrice) ? 'inline-block' : 'none';
 }
-['brand','style','substyle','tog','size','cond','payout','rate','accepted','descname','rrp','condfree','fabric','collection','override','storage'].forEach(id=>{
+['brand','style','substyle','tog','fire','fireColour','size','cond','payout','rate','accepted','descname','rrp','condfree','fabric','collection','override','storage'].forEach(id=>{
   $(id).addEventListener('input',refresh);
   $(id).addEventListener('change',refresh);
 });
 // when style changes, rebuild the sub-style dropdown before refreshing
 $('style').addEventListener('change',()=>{ refreshSubstyleOptions(); refresh(); });
 $('substyle').addEventListener('change',()=>{ refreshTogOptions(); refresh(); });
+$('fire').addEventListener('change',()=>{ refreshFireOption(); refresh(); });
 // when brand changes, rebuild the rate picker
 $('brand').addEventListener('input',()=>{ refreshRateOptions(); refresh(); });
 $('brand').addEventListener('change',()=>{ refreshRateOptions(); refresh(); });
@@ -1289,6 +1313,7 @@ function resetForm(){
   });
   // condition has its own sensible default (EUC), not the first option
   $('cond').value='EUC';
+  $('fire').checked=false; $('fireColour').value='white';
   // each new item defaults to Accepted
   $('accepted').value='yes';
   $('storage').value='';   // every new item defaults to List now
@@ -1362,6 +1387,8 @@ function startEdit(i){
     refreshTogOptions();
     $('tog').value=it.tog||'';
   }
+  $('fire').checked=!!it.fireLabel; $('fireColour').value=it.fireLabel||'white';
+  refreshFireOption();
   $('cond').value=it.cond;
   $('size').value=it.size||'';
   lastSizeForTags=it.size||'';
@@ -1735,7 +1762,7 @@ const CSV_COLS=['Handle','Title','Body (HTML)','Vendor','Product Category','Type
   'Variant Inventory Qty',
   'Variant Inventory Policy','Variant Fulfillment Service','Variant Price',
   'Cost per item','Variant Requires Shipping','Variant Taxable','Status',
-  'SEO Title','SEO Description'];
+  'SEO Title','SEO Description','Image Src','Image Position'];
 function csvRowFor(it, seen){
   const title=buildTitle(it);
   let handle=handleFrom(title)||('item-'+Math.random().toString(36).slice(2,8));
@@ -1751,7 +1778,8 @@ function csvRowFor(it, seen){
     'deny','manual', price,
     costItem,
     'TRUE','TRUE','draft',
-    buildSeoTitle(it), buildSeoDescription(it)
+    buildSeoTitle(it), buildSeoDescription(it),
+    FIRE_LABELS[it.fireLabel]||'', FIRE_LABELS[it.fireLabel]?'1':''
   ];
   return row.map(csvCell).join(',');
 }
@@ -1880,13 +1908,35 @@ $('boxConnectBtn').addEventListener('click',async()=>{
   }
   renderBoxPanel();
 })();
+// Box files started before the fire-label feature have no Image Src / Image Position
+// columns. Before appending new rows, widen the header and pad every existing row
+// (quote-aware, so line breaks inside fields are safe) so all rows line up.
+function upgradeBoxCsv(text){
+  const firstNl=text.search(/\r?\n/);
+  const header=firstNl<0?text:text.slice(0,firstNl);
+  if(/Image Src/i.test(header)) return text;
+  let out='', inQ=false, rec=0;
+  const pad=()=>{ out+= (rec===0?',Image Src,Image Position':',,'); rec++; };
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(ch==='"'){ inQ=!inQ; out+=ch; continue; }
+    if(!inQ && (ch==='\r' || ch==='\n')){
+      if(ch==='\r' && text[i+1]==='\n'){ pad(); out+='\r\n'; i++; }
+      else { pad(); out+=ch; }
+      continue;
+    }
+    out+=ch;
+  }
+  if(text.length && !/[\r\n]$/.test(text)) pad();
+  return out;
+}
 // Append rows to the open box for a category. Creates the file (with header) if new.
 async function appendToBox(cat, lines){
   const name=boxFileName(cat);
   const existing=await readText(name);
   let out;
   if(!existing || !existing.trim()){ out=[CSV_COLS.join(',')].concat(lines).join('\r\n')+'\r\n'; }
-  else { out=existing.replace(/\s+$/,'')+'\r\n'+lines.join('\r\n')+'\r\n'; }
+  else { out=upgradeBoxCsv(existing).replace(/\s+$/,'')+'\r\n'+lines.join('\r\n')+'\r\n'; }
   await writeText(name,out);
   return name;
 }
